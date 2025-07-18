@@ -1,0 +1,6 @@
+Copy / clone repository to /usr/src/gm12u320-0.1/
+
+Execute the following commands:
+dkms add -m gm12u320 -v 0.1
+dkms build -m gm12u320 -v 0.1
+dkms install -m gm12u320 -v 0.1
