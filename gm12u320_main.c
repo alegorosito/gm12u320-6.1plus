@@ -279,21 +279,36 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	printk(KERN_DEBUG "gm12u320: Capturing screen: %dx%d, %dbpp, %d bytes\n", 
 	       width, height, bpp, total_size);
 	
-	if (total_size > max_size) {
-		printk(KERN_WARNING "gm12u320: Screen too large, truncating\n");
-		height = max_size / line_length;
+	/* Calculate scaling factors to fit in projector resolution */
+	int scale_x = width / GM12U320_USER_WIDTH;
+	int scale_y = height / GM12U320_HEIGHT;
+	int scale = max(scale_x, scale_y);
+	
+	if (scale > 1) {
+		printk(KERN_INFO "gm12u320: Scaling screen from %dx%d to %dx%d (scale=%d)\n", 
+		       width, height, GM12U320_USER_WIDTH, GM12U320_HEIGHT, scale);
+		width = GM12U320_USER_WIDTH;
+		height = GM12U320_HEIGHT;
+		line_length = width * (bpp / 8);
 		total_size = line_length * height;
 	}
 	
 	src_buffer = fb_info->screen_base;
 	
-	/* Copy and convert from main framebuffer to our buffer */
+	/* Copy and convert from main framebuffer to our buffer with scaling */
+	int src_width = fb_info->var.xres;
+	int src_height = fb_info->var.yres;
+	int src_line_length = fb_info->fix.line_length;
+	
 	for (i = 0; i < height; i++) {
 		for (j = 0; j < width; j++) {
-			int src_offset = i * line_length + j * (bpp / 8);
+			/* Calculate source coordinates with scaling */
+			int src_i = (i * src_height) / height;
+			int src_j = (j * src_width) / width;
+			int src_offset = src_i * src_line_length + src_j * (bpp / 8);
 			int dest_offset = i * width * 3 + j * 3; /* 24bpp RGB */
 			
-			if (dest_offset + 2 < max_size) {
+			if (dest_offset + 2 < max_size && src_offset < src_line_length * src_height) {
 				/* Convert to RGB24 format */
 				if (bpp == 32) {
 					/* 32bpp ARGB to 24bpp RGB */
