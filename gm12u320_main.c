@@ -410,17 +410,15 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_usb;
 
-	/* Skip fbdev initialization for now to avoid NULL pointer issues */
-	/* ret = gm12u320_fbdev_init(dev); */
-	/* if (ret) */
-	/* 	goto err_modeset; */
-	
-	/* TEMPORARY: Skip fbdev completely */
-	DRM_DEBUG("gm12u320_driver_load: SKIPPING fbdev_init\n");
+	ret = gm12u320_fbdev_init(dev);
+	if (ret) {
+		DRM_ERROR("Failed to initialize fbdev: %d\n", ret);
+		goto err_modeset;
+	}
 
 	ret = drm_vblank_init(dev, 1);
 	if (ret)
-		goto err_fb;
+		goto err_modeset;
 
 	/* Start framebuffer update after a delay to ensure device is ready */
 	mod_timer(&gm12u320->fb_update.timer, jiffies + msecs_to_jiffies(1000));
@@ -428,7 +426,7 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	return 0;
 
 err_fb:
-	/* gm12u320_fbdev_cleanup(dev); */
+	gm12u320_fbdev_cleanup(dev);
 err_modeset:
 	gm12u320_modeset_cleanup(dev);
 err_usb:
@@ -446,7 +444,7 @@ void gm12u320_driver_unload(struct drm_device *dev)
 	struct gm12u320_device *gm12u320 = dev->dev_private;
 	// avoid cleaning up twice, as this function is apparently called twice
 	if (gm12u320) {
-		/* gm12u320_fbdev_cleanup(dev); */
+		gm12u320_fbdev_cleanup(dev);
 		gm12u320_modeset_cleanup(dev);
 		gm12u320_usb_free(gm12u320);
 		destroy_workqueue(gm12u320->fb_update.workq);

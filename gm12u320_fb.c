@@ -246,9 +246,43 @@ static void gm12u320_fbdev_destroy(struct drm_device *dev,
 
 int gm12u320_fbdev_init(struct drm_device *dev)
 {
-	/* TEMPORARY: Return success without doing anything */
-	DRM_DEBUG("gm12u320_fbdev_init: SKIPPED\n");
+	struct gm12u320_device *gm12u320 = dev->dev_private;
+	struct gm12u320_fbdev *fbdev;
+	int ret;
+
+	DRM_DEBUG("gm12u320_fbdev_init: STARTING\n");
+
+	fbdev = kzalloc(sizeof(*fbdev), GFP_KERNEL);
+	if (!fbdev) {
+		DRM_ERROR("Failed to allocate fbdev\n");
+		return -ENOMEM;
+	}
+
+	gm12u320->fbdev = fbdev;
+
+	drm_fb_helper_prepare(dev, &fbdev->helper, 32, &gm12u320_fb_helper_funcs);
+
+	ret = drm_fb_helper_init(dev, &fbdev->helper);
+	if (ret) {
+		DRM_ERROR("Failed to initialize fb helper: %d\n", ret);
+		goto err_free;
+	}
+
+	ret = drm_fb_helper_initial_config(&fbdev->helper, 32);
+	if (ret) {
+		DRM_ERROR("Failed to set initial config: %d\n", ret);
+		goto err_fini;
+	}
+
+	DRM_DEBUG("gm12u320_fbdev_init: SUCCESS\n");
 	return 0;
+
+err_fini:
+	drm_fb_helper_fini(&fbdev->helper);
+err_free:
+	kfree(fbdev);
+	gm12u320->fbdev = NULL;
+	return ret;
 }
 
 void gm12u320_fbdev_cleanup(struct drm_device *dev)
