@@ -1,5 +1,4 @@
-   df s 
-   /*
+/*
  * Copyright (C) 2012-2016 Red Hat Inc.
  *
  * Based in parts on the udl code. Based in parts on the gm12u320 fb driver:
