@@ -59,6 +59,7 @@ struct gm12u320_device {
 		bool run;
 		struct workqueue_struct *workq;
 		struct work_struct work;
+		struct timer_list timer;
 		wait_queue_head_t waitq;
 		struct mutex lock;
 		struct gm12u320_framebuffer *fb;

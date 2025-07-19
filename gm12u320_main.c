@@ -20,6 +20,9 @@
 /* Function prototypes */
 void gm12u320_32bpp_to_24bpp_packed(u8 *dst, u8 *src, int len);
 
+/* Timer function to start fb update safely */
+static void gm12u320_fb_update_timer(struct timer_list *t);
+
 static bool eco_mode;
 module_param(eco_mode, bool, 0644);
 MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
@@ -349,12 +352,21 @@ void gm12u320_stop_fb_update(struct drm_device *dev)
 
 	wake_up(&gm12u320->fb_update.waitq);
 	cancel_work_sync(&gm12u320->fb_update.work);
+	del_timer_sync(&gm12u320->fb_update.timer);
 
 	mutex_lock(&gm12u320->fb_update.lock);
 	if (gm12u320->fb_update.fb) {
 		gm12u320->fb_update.fb = NULL;
 	}
 	mutex_unlock(&gm12u320->fb_update.lock);
+}
+
+static void gm12u320_fb_update_timer(struct timer_list *t)
+{
+	struct gm12u320_device *gm12u320 = from_timer(gm12u320, t, fb_update.timer);
+	
+	/* Start the framebuffer update workqueue */
+	gm12u320_start_fb_update(gm12u320->ddev);
 }
 
 int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
@@ -375,6 +387,7 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	mutex_init(&gm12u320->gem_lock);
 
 	INIT_WORK(&gm12u320->fb_update.work, gm12u320_fb_update_work);
+	timer_setup(&gm12u320->fb_update.timer, gm12u320_fb_update_timer, 0);
 	mutex_init(&gm12u320->fb_update.lock);
 	init_waitqueue_head(&gm12u320->fb_update.waitq);
 
@@ -405,7 +418,8 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_fb;
 
-	gm12u320_start_fb_update(dev);
+	/* Start framebuffer update after a delay to ensure device is ready */
+	mod_timer(&gm12u320->fb_update.timer, jiffies + msecs_to_jiffies(1000));
 
 	return 0;
 
