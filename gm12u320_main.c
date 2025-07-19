@@ -1,4 +1,5 @@
-/*
+   df s 
+   /*
  * Copyright (C) 2012-2016 Red Hat Inc.
  *
  * Based in parts on the udl code. Based in parts on the gm12u320 fb driver:
@@ -52,7 +53,7 @@ MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
 
 #define CMD_TIMEOUT			200
 #define DATA_TIMEOUT			1000
-#define IDLE_TIMEOUT			100	/* Reduced from 2000ms to 100ms for higher frame rate */
+#define IDLE_TIMEOUT			500	/* Increased to 500ms to reduce system load */
 #define FIRST_FRAME_TIMEOUT		2000
 
 #define MISC_REQ_GET_SET_ECO_A		0xff
@@ -256,12 +257,15 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	int width, height, bpp, line_length, total_size;
 	int i, j;
 	
-	/* Try to get the main framebuffer (/dev/fb0) using file operations */
+	/* Try to get the main framebuffer (/dev/fb0) using file operations with timeout */
 	struct file *fb_file = filp_open("/dev/fb0", O_RDONLY, 0);
 	if (IS_ERR(fb_file)) {
 		printk(KERN_DEBUG "gm12u320: Cannot open /dev/fb0: %ld\n", PTR_ERR(fb_file));
 		return -ENODEV;
 	}
+	
+	/* Add a small delay to avoid blocking the system */
+	usleep_range(1000, 2000);
 	
 	fb_info = fb_file->private_data;
 	if (!fb_info || !fb_info->screen_base) {
@@ -398,6 +402,8 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			/* Create a temporary buffer for screen capture */
 			unsigned char *screen_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
 			if (screen_buffer) {
+				/* Add a small delay to reduce system load */
+				usleep_range(1000, 2000); /* 1-2ms delay */
 				/* Capture main screen */
 				int captured_size = capture_main_screen(gm12u320, screen_buffer, 
 					GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
