@@ -15,6 +15,8 @@
 #include <linux/dma-buf.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_vblank.h>
+#include <linux/fb.h>
+#include <linux/vt_kern.h>
 #include "gm12u320_drv.h"
 
 /* Function prototypes */
@@ -49,7 +51,7 @@ MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
 
 #define CMD_TIMEOUT			200
 #define DATA_TIMEOUT			1000
-#define IDLE_TIMEOUT			2000
+#define IDLE_TIMEOUT			100	/* Reduced from 2000ms to 100ms for higher frame rate */
 #define FIRST_FRAME_TIMEOUT		2000
 
 #define MISC_REQ_GET_SET_ECO_A		0xff
@@ -245,6 +247,70 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 	return ret;
 }
 
+/* Function to capture main screen content */
+static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
+{
+	struct fb_info *fb_info;
+	unsigned char *src_buffer;
+	int width, height, bpp, line_length, total_size;
+	int i, j, k;
+	
+	/* Try to get the main framebuffer (/dev/fb0) */
+	fb_info = registered_fb[0]; /* Main framebuffer is usually at index 0 */
+	if (!fb_info || !fb_info->screen_base) {
+		printk(KERN_DEBUG "gm12u320: No main framebuffer available\n");
+		return -ENODEV;
+	}
+	
+	width = fb_info->var.xres;
+	height = fb_info->var.yres;
+	bpp = fb_info->var.bits_per_pixel;
+	line_length = fb_info->fix.line_length;
+	total_size = line_length * height;
+	
+	printk(KERN_DEBUG "gm12u320: Capturing screen: %dx%d, %dbpp, %d bytes\n", 
+	       width, height, bpp, total_size);
+	
+	if (total_size > max_size) {
+		printk(KERN_WARNING "gm12u320: Screen too large, truncating\n");
+		height = max_size / line_length;
+		total_size = line_length * height;
+	}
+	
+	src_buffer = fb_info->screen_base;
+	
+	/* Copy and convert from main framebuffer to our buffer */
+	for (i = 0; i < height; i++) {
+		for (j = 0; j < width; j++) {
+			int src_offset = i * line_length + j * (bpp / 8);
+			int dest_offset = i * width * 3 + j * 3; /* 24bpp RGB */
+			
+			if (dest_offset + 2 < max_size) {
+				/* Convert to RGB24 format */
+				if (bpp == 32) {
+					/* 32bpp ARGB to 24bpp RGB */
+					dest_buffer[dest_offset] = src_buffer[src_offset + 2];     /* Red */
+					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1];   /* Green */
+					dest_buffer[dest_offset + 2] = src_buffer[src_offset];       /* Blue */
+				} else if (bpp == 24) {
+					/* 24bpp to 24bpp (copy) */
+					dest_buffer[dest_offset] = src_buffer[src_offset];         /* Red */
+					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1]; /* Green */
+					dest_buffer[dest_offset + 2] = src_buffer[src_offset + 2]; /* Blue */
+				} else if (bpp == 16) {
+					/* 16bpp to 24bpp conversion */
+					unsigned short pixel = *(unsigned short*)(src_buffer + src_offset);
+					dest_buffer[dest_offset] = ((pixel >> 11) & 0x1F) << 3;     /* Red */
+					dest_buffer[dest_offset + 1] = ((pixel >> 5) & 0x3F) << 2;  /* Green */
+					dest_buffer[dest_offset + 2] = (pixel & 0x1F) << 3;         /* Blue */
+				}
+			}
+		}
+	}
+	
+	return total_size;
+}
+
 static void gm12u320_fb_update_work(struct work_struct *work)
 {
 	struct gm12u320_device *gm12u320 =
@@ -299,37 +365,62 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			printk(KERN_INFO "gm12u320: No framebuffer to process, sending test pattern\n");
-			/* Fill data buffers with a more interesting test pattern */
-			for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-				int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-					DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-				/* Fill with a rainbow pattern that changes over time */
-				for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
-					int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
-					int time_offset = frame * 100;
-					
-					/* Create a moving rainbow pattern */
-					int hue = (pixel_pos + time_offset) % 360;
-					
-					/* Simple RGB conversion from hue */
-					if (hue < 120) {
-						/* Red to Green */
-						gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);     /* Red */
-						gm12u320->data_buf[i][j+1] = (hue * 255 / 120);         /* Green */
-						gm12u320->data_buf[i][j+2] = 0;                         /* Blue */
-					} else if (hue < 240) {
-						/* Green to Blue */
-						gm12u320->data_buf[i][j] = 0;                           /* Red */
-						gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120); /* Green */
-						gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);       /* Blue */
-					} else {
-						/* Blue to Red */
-						gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);  /* Red */
-						gm12u320->data_buf[i][j+1] = 0;                         /* Green */
-						gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120); /* Blue */
+			printk(KERN_DEBUG "gm12u320: No framebuffer to process, capturing main screen\n");
+			
+			/* Create a temporary buffer for screen capture */
+			unsigned char *screen_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
+			if (screen_buffer) {
+				/* Capture main screen */
+				int captured_size = capture_main_screen(gm12u320, screen_buffer, 
+					GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
+				
+				if (captured_size > 0) {
+					/* Copy captured screen data to data buffers */
+					int data_offset = 0;
+					for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+						int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+							DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+						int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
+						
+						/* Copy screen data to this block */
+						if (data_offset < captured_size) {
+							int copy_size = min(data_size, captured_size - data_offset);
+							memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
+								screen_buffer + data_offset, copy_size);
+							data_offset += copy_size;
+						}
+					}
+					printk(KERN_DEBUG "gm12u320: Screen captured and sent to projector\n");
+				} else {
+					/* Fallback to rainbow pattern if capture fails */
+					printk(KERN_DEBUG "gm12u320: Screen capture failed, using rainbow pattern\n");
+					for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+						int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+							DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+						for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
+							int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
+							int time_offset = frame * 100;
+							int hue = (pixel_pos + time_offset) % 360;
+							
+							if (hue < 120) {
+								gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
+								gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
+								gm12u320->data_buf[i][j+2] = 0;
+							} else if (hue < 240) {
+								gm12u320->data_buf[i][j] = 0;
+								gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
+								gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
+							} else {
+								gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
+								gm12u320->data_buf[i][j+1] = 0;
+								gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
+							}
+						}
 					}
 				}
+				kfree(screen_buffer);
+			} else {
+				printk(KERN_WARNING "gm12u320: Failed to allocate screen buffer\n");
 			}
 		}
 
