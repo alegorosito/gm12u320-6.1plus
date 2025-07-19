@@ -52,7 +52,7 @@ static int gm12u320_gem_create(struct drm_file *file, struct drm_device *dev,
 		return ret;
 	}
 
-	drm_gem_object_put_unlocked(&obj->base);
+	drm_gem_object_put(&obj->base);
 	*handle_p = handle;
 	return 0;
 }
@@ -216,11 +216,9 @@ int gm12u320_gem_mmap(struct drm_file *file, struct drm_device *dev,
 	struct drm_gem_object *obj;
 	int ret = 0;
 
-	mutex_lock(&dev->struct_mutex);
-	obj = drm_gem_object_lookup(file, handle);
+	obj = drm_gem_object_lookup_file(file, handle);
 	if (obj == NULL) {
-		ret = -ENOENT;
-		goto unlock;
+		return -ENOENT;
 	}
 	gobj = to_gm12u320_bo(obj);
 
@@ -234,8 +232,6 @@ int gm12u320_gem_mmap(struct drm_file *file, struct drm_device *dev,
 	*offset = drm_vma_node_offset_addr(&gobj->base.vma_node);
 
 out:
-	drm_gem_object_put_unlocked(&gobj->base);
-unlock:
-	mutex_unlock(&dev->struct_mutex);
+	drm_gem_object_put(&gobj->base);
 	return ret;
 }

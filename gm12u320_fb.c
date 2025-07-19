@@ -124,7 +124,7 @@ static void gm12u320_user_framebuffer_destroy(struct drm_framebuffer *drm_fb)
 	struct gm12u320_framebuffer *fb = to_gm12u320_fb(drm_fb);
 
 	if (fb->obj)
-		drm_gem_object_put_unlocked(&fb->obj->base);
+		drm_gem_object_put(&fb->obj->base);
 
 	drm_framebuffer_cleanup(drm_fb);
 	kfree(fb);
@@ -144,7 +144,13 @@ gm12u320_framebuffer_init(struct drm_device *dev,
 	int ret;
 
 	fb->obj = obj;
-	drm_helper_mode_fill_fb_struct(dev, &fb->base, mode_cmd);
+	fb->base.dev = dev;
+	fb->base.format = drm_get_format_info(dev, mode_cmd->pixel_format);
+	fb->base.pitches[0] = mode_cmd->pitches[0];
+	fb->base.offsets[0] = mode_cmd->offsets[0];
+	fb->base.width = mode_cmd->width;
+	fb->base.height = mode_cmd->height;
+	fb->base.flags = mode_cmd->flags;
 	ret = drm_framebuffer_init(dev, &fb->base, &gm12u320fb_funcs);
 	return ret;
 }
@@ -169,8 +175,14 @@ static int gm12u320fb_create(struct drm_fb_helper *helper,
 	mode_cmd.height = sizes->surface_height;
 	mode_cmd.pitches[0] = mode_cmd.width * ((sizes->surface_bpp + 7) / 8);
 
-	mode_cmd.pixel_format = drm_mode_legacy_fb_format(sizes->surface_bpp,
-							  sizes->surface_depth);
+	if (sizes->surface_bpp == 32)
+		mode_cmd.pixel_format = DRM_FORMAT_XRGB8888;
+	else if (sizes->surface_bpp == 24)
+		mode_cmd.pixel_format = DRM_FORMAT_RGB888;
+	else if (sizes->surface_bpp == 16)
+		mode_cmd.pixel_format = DRM_FORMAT_RGB565;
+	else
+		mode_cmd.pixel_format = DRM_FORMAT_XRGB8888;
 
 	size = mode_cmd.pitches[0] * mode_cmd.height;
 	size = ALIGN(size, PAGE_SIZE);
@@ -222,7 +234,7 @@ static int gm12u320fb_create(struct drm_fb_helper *helper,
 	return ret;
 
 out_gfree:
-	drm_gem_object_put_unlocked(&fbdev->fb.obj->base);
+	drm_gem_object_put(&fbdev->fb.obj->base);
 out:
 	return ret;
 }
@@ -237,11 +249,10 @@ static void gm12u320_fbdev_destroy(struct drm_device *dev,
 #ifdef CONFIG_DRM_FBDEV_EMULATION
 	fb_deferred_io_cleanup(fbdev->helper.fbdev);
 #endif
-	drm_fb_helper_unregister_fbi(&fbdev->helper);
 	drm_fb_helper_fini(&fbdev->helper);
 	drm_framebuffer_unregister_private(&fbdev->fb.base);
 	drm_framebuffer_cleanup(&fbdev->fb.base);
-	drm_gem_object_put_unlocked(&fbdev->fb.obj->base);
+	drm_gem_object_put(&fbdev->fb.obj->base);
 }
 
 int gm12u320_fbdev_init(struct drm_device *dev)
@@ -301,7 +312,7 @@ void gm12u320_fbdev_unplug(struct drm_device *dev)
 	if (!gm12u320->fbdev)
 		return;
 
-	drm_fb_helper_unlink_fbi(&gm12u320->fbdev->helper);
+	/* fbdev cleanup is handled by drm_fb_helper_fini */
 }
 
 struct drm_framebuffer *
@@ -314,7 +325,7 @@ gm12u320_fb_user_fb_create(struct drm_device *dev,
 	int ret;
 	uint32_t size;
 
-	obj = drm_gem_object_lookup(file, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup_file(file, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
