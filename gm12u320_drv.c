@@ -40,16 +40,12 @@ static struct drm_driver driver = {
 	.load = gm12u320_driver_load,
 	.unload = gm12u320_driver_unload,
 
-	/* gem hooks */
-	.gem_free_object = gm12u320_gem_free_object,
-
 	.dumb_create = gm12u320_dumb_create,
 	.dumb_map_offset = gm12u320_gem_mmap,
 	.fops = &gm12u320_driver_fops,
 
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
-	.gem_prime_export = gm12u320_gem_prime_export,
 	.gem_prime_import = gm12u320_gem_prime_import,
 
 	.name = DRIVER_NAME,
@@ -100,7 +96,7 @@ static void gm12u320_usb_disconnect(struct usb_interface *interface)
 	if (!dev)
 		return;
 
-	drm_kms_helper_poll_disable(dev);
+	// drm_kms_helper_poll_disable(dev); // Eliminado para compatibilidad
 	gm12u320_fbdev_unplug(dev);
 	gm12u320_stop_fb_update(dev);
 	drm_dev_unplug(dev);
@@ -108,7 +104,7 @@ static void gm12u320_usb_disconnect(struct usb_interface *interface)
 
 #ifdef CONFIG_PM
 
-int gm12u320_suspend(struct usb_interface *interface, pm_message_t message)
+static int gm12u320_suspend(struct usb_interface *interface, pm_message_t message)
 {
 	struct drm_device *dev = usb_get_intfdata(interface);
 
@@ -119,7 +115,7 @@ int gm12u320_suspend(struct usb_interface *interface, pm_message_t message)
 	return 0;
 }
 
-int gm12u320_resume(struct usb_interface *interface)
+static int gm12u320_resume(struct usb_interface *interface)
 {
 	struct drm_device *dev = usb_get_intfdata(interface);
 
