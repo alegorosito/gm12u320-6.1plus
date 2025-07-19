@@ -88,18 +88,13 @@ static int gm12u320_get_modes(struct drm_connector *connector)
 static enum drm_connector_status
 gm12u320_detect(struct drm_connector *connector, bool force)
 {
-	if (drm_dev_is_unplugged(connector->dev))
-		return connector_status_disconnected;
-
 	return connector_status_connected;
 }
 
 static struct drm_encoder*
 gm12u320_best_single_encoder(struct drm_connector *connector)
 {
-	int enc_id = connector->encoder_ids[0];
-
-	return drm_encoder_find(connector->dev, enc_id);
+	return connector->encoder;
 }
 
 static int gm12u320_connector_set_property(struct drm_connector *connector,
@@ -116,15 +111,14 @@ static void gm12u320_connector_destroy(struct drm_connector *connector)
 	kfree(connector);
 }
 
-static const struct drm_connector_helper_funcs gm12u320_helper_funcs = {
-	.get_modes = gm12u320_get_modes,
-	.best_encoder = gm12u320_best_single_encoder,
-};
-
 static const struct drm_connector_funcs gm12u320_connector_funcs = {
 	.detect = gm12u320_detect,
 	.destroy = gm12u320_connector_destroy,
 	.set_property = gm12u320_connector_set_property,
+	.fill_modes = drm_helper_probe_single_connector_modes,
+	.reset = drm_atomic_helper_connector_reset,
+	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
 
 int gm12u320_connector_init(struct drm_device *dev,
@@ -138,7 +132,6 @@ int gm12u320_connector_init(struct drm_device *dev,
 
 	drm_connector_init(dev, connector, &gm12u320_connector_funcs,
 			   DRM_MODE_CONNECTOR_Unknown);
-	drm_connector_helper_add(connector, &gm12u320_helper_funcs);
 
 	drm_connector_register(connector);
 	drm_connector_attach_encoder(connector, encoder);
