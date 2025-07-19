@@ -246,25 +246,8 @@ static void gm12u320_fbdev_destroy(struct drm_device *dev,
 
 int gm12u320_fbdev_init(struct drm_device *dev)
 {
-	struct gm12u320_device *gm12u320 = dev->dev_private;
-	struct gm12u320_fbdev *fbdev;
-
-	/* For now, just allocate the structure but don't initialize fbdev */
-	fbdev = kzalloc(sizeof(struct gm12u320_fbdev), GFP_KERNEL);
-	if (!fbdev)
-		return -ENOMEM;
-
-	gm12u320->fbdev = fbdev;
-
-	/* Skip fbdev initialization for now to avoid NULL pointer issues */
-	/* drm_fb_helper_prepare(dev, &fbdev->helper, 32, NULL); */
-	/* ret = drm_fb_helper_init(dev, &fbdev->helper); */
-	/* if (ret) */
-	/* 	goto free; */
-	/* ret = drm_fb_helper_initial_config(&fbdev->helper); */
-	/* if (ret) */
-	/* 	goto fini; */
-
+	/* TEMPORARY: Return success without doing anything */
+	DRM_DEBUG("gm12u320_fbdev_init: SKIPPED\n");
 	return 0;
 }
 
