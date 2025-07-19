@@ -268,7 +268,7 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 		goto err_free;
 	}
 
-	ret = drm_fb_helper_initial_config(&fbdev->helper, 32);
+	ret = drm_fb_helper_initial_config(&fbdev->helper);
 	if (ret) {
 		DRM_ERROR("Failed to set initial config: %d\n", ret);
 		goto err_fini;

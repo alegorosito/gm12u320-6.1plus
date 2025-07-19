@@ -418,7 +418,7 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 
 	ret = drm_vblank_init(dev, 1);
 	if (ret)
-		goto err_modeset;
+		goto err_fb;
 
 	/* Start framebuffer update after a delay to ensure device is ready */
 	mod_timer(&gm12u320->fb_update.timer, jiffies + msecs_to_jiffies(1000));
