@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/dma-buf.h>
 #include <drm/drm_drv.h>
+#include <drm/drm_vblank.h>
 #include "gm12u320_drv.h"
 
 static bool eco_mode;
