@@ -67,18 +67,12 @@ static int gm12u320_fb_open(struct fb_info *info, int user)
 	struct drm_device *ddev = fbdev->fb.base.dev;
 
 	/* If the USB device is gone, we don't accept new opens */
-	if (drm_dev_is_unplugged(ddev))
-		return -ENODEV;
-
 	return 0;
 }
 
 static struct fb_ops gm12u320_fb_ops = {
 	.owner = THIS_MODULE,
 	DRM_FB_HELPER_DEFAULT_OPS,
-	.fb_fillrect = drm_fb_helper_sys_fillrect,
-	.fb_copyarea = drm_fb_helper_sys_copyarea,
-	.fb_imageblit = drm_fb_helper_sys_imageblit,
 	.fb_open = gm12u320_fb_open,
 };
 
@@ -145,7 +139,7 @@ gm12u320_framebuffer_init(struct drm_device *dev,
 
 	fb->obj = obj;
 	fb->base.dev = dev;
-	fb->base.format = drm_get_format_info(dev, mode_cmd->pixel_format);
+	fb->base.format = drm_get_format_info(dev, mode_cmd);
 	fb->base.pitches[0] = mode_cmd->pitches[0];
 	fb->base.offsets[0] = mode_cmd->offsets[0];
 	fb->base.width = mode_cmd->width;
@@ -197,7 +191,7 @@ static int gm12u320fb_create(struct drm_fb_helper *helper,
 		goto out_gfree;
 	}
 
-	info = drm_fb_helper_alloc_fbi(helper);
+	info = drm_fb_helper_alloc_info(helper);
 	if (IS_ERR(info)) {
 		ret = PTR_ERR(info);
 		goto out_gfree;
@@ -247,7 +241,7 @@ static void gm12u320_fbdev_destroy(struct drm_device *dev,
 				   struct gm12u320_fbdev *fbdev)
 {
 #ifdef CONFIG_DRM_FBDEV_EMULATION
-	fb_deferred_io_cleanup(fbdev->helper.fbdev);
+	fb_deferred_io_cleanup(fbdev->helper.info);
 #endif
 	drm_fb_helper_fini(&fbdev->helper);
 	drm_framebuffer_unregister_private(&fbdev->fb.base);
@@ -267,20 +261,13 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 
 	gm12u320->fbdev = fbdev;
 
-	drm_fb_helper_prepare(dev, &fbdev->helper, &gm12u320_fb_helper_funcs);
+	drm_fb_helper_prepare(dev, &fbdev->helper, 32);
 
-	ret = drm_fb_helper_init(dev, &fbdev->helper, 1);
+	ret = drm_fb_helper_init(dev, &fbdev->helper);
 	if (ret)
 		goto free;
 
-	ret = drm_fb_helper_single_add_all_connectors(&fbdev->helper);
-	if (ret)
-		goto fini;
-
-	/* disable all the possible outputs/crtcs before entering KMS mode */
-	drm_helper_disable_unused_functions(dev);
-
-	ret = drm_fb_helper_initial_config(&fbdev->helper, 32);
+	ret = drm_fb_helper_initial_config(&fbdev->helper);
 	if (ret)
 		goto fini;
 
@@ -325,7 +312,7 @@ gm12u320_fb_user_fb_create(struct drm_device *dev,
 	int ret;
 	uint32_t size;
 
-	obj = drm_gem_object_lookup_file(file, mode_cmd->handles[0]);
+	obj = drm_gem_object_lookup(file, mode_cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
