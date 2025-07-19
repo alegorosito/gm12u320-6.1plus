@@ -57,6 +57,8 @@ int gm12u320_connector_init(struct drm_device *dev,
 			    struct drm_encoder *encoder)
 {
 	struct drm_connector *connector;
+	
+	printk(KERN_INFO "gm12u320: connector_init started\n");
 
 	connector = kzalloc(sizeof(struct drm_connector), GFP_KERNEL);
 	if (!connector)
@@ -81,5 +83,6 @@ int gm12u320_connector_init(struct drm_device *dev,
 	drm_connector_register(connector);
 	drm_connector_attach_encoder(connector, encoder);
 
+	printk(KERN_INFO "gm12u320: connector_init completed\n");
 	return 0;
 }
