@@ -414,6 +414,9 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	/* ret = gm12u320_fbdev_init(dev); */
 	/* if (ret) */
 	/* 	goto err_modeset; */
+	
+	/* TEMPORARY: Skip fbdev completely */
+	DRM_DEBUG("gm12u320_driver_load: SKIPPING fbdev_init\n");
 
 	ret = drm_vblank_init(dev, 1);
 	if (ret)
