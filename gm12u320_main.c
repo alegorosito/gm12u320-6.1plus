@@ -321,11 +321,15 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1]; /* Green */
 					dest_buffer[dest_offset + 2] = src_buffer[src_offset + 2]; /* Blue */
 				} else if (bpp == 16) {
-					/* 16bpp to 24bpp conversion */
+					/* 16bpp to 24bpp conversion - improved */
 					unsigned short pixel = *(unsigned short*)(src_buffer + src_offset);
-					dest_buffer[dest_offset] = ((pixel >> 11) & 0x1F) << 3;     /* Red */
-					dest_buffer[dest_offset + 1] = ((pixel >> 5) & 0x3F) << 2;  /* Green */
-					dest_buffer[dest_offset + 2] = (pixel & 0x1F) << 3;         /* Blue */
+					/* RGB565 format: RRRRRGGGGGGBBBBB */
+					int r = ((pixel >> 11) & 0x1F) * 255 / 31;     /* Red: 5 bits -> 8 bits */
+					int g = ((pixel >> 5) & 0x3F) * 255 / 63;      /* Green: 6 bits -> 8 bits */
+					int b = (pixel & 0x1F) * 255 / 31;             /* Blue: 5 bits -> 8 bits */
+					dest_buffer[dest_offset] = r;     /* Red */
+					dest_buffer[dest_offset + 1] = g; /* Green */
+					dest_buffer[dest_offset + 2] = b; /* Blue */
 				}
 			}
 		}
