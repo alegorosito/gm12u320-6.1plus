@@ -396,64 +396,31 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			printk(KERN_DEBUG "gm12u320: No framebuffer to process, capturing main screen\n");
+			printk(KERN_DEBUG "gm12u320: No framebuffer to process, using rainbow pattern\n");
 			
-			/* Create a temporary buffer for screen capture */
-			unsigned char *screen_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
-			if (screen_buffer) {
-				/* Add a small delay to reduce system load */
-				usleep_range(1000, 2000); /* 1-2ms delay */
-				/* Capture main screen */
-				int captured_size = capture_main_screen(gm12u320, screen_buffer, 
-					GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
-				
-				if (captured_size > 0) {
-					/* Copy captured screen data to data buffers */
-					int data_offset = 0;
-					for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-						int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-							DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-						int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
-						
-						/* Copy screen data to this block */
-						if (data_offset < captured_size) {
-							int copy_size = min(data_size, captured_size - data_offset);
-							memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
-								screen_buffer + data_offset, copy_size);
-							data_offset += copy_size;
-						}
-					}
-					printk(KERN_DEBUG "gm12u320: Screen captured and sent to projector\n");
-				} else {
-					/* Fallback to rainbow pattern if capture fails */
-					printk(KERN_DEBUG "gm12u320: Screen capture failed, using rainbow pattern\n");
-					for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-						int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-							DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-						for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
-							int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
-							int time_offset = frame * 100;
-							int hue = (pixel_pos + time_offset) % 360;
-							
-							if (hue < 120) {
-								gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
-								gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
-								gm12u320->data_buf[i][j+2] = 0;
-							} else if (hue < 240) {
-								gm12u320->data_buf[i][j] = 0;
-								gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
-								gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
-							} else {
-								gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
-								gm12u320->data_buf[i][j+1] = 0;
-								gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
-							}
-						}
+			/* Use rainbow pattern - userspace can copy /dev/fb0 to /dev/fb1 for screen mirroring */
+			for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+				int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+					DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+				for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
+					int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
+					int time_offset = frame * 100;
+					int hue = (pixel_pos + time_offset) % 360;
+					
+					if (hue < 120) {
+						gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
+						gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
+						gm12u320->data_buf[i][j+2] = 0;
+					} else if (hue < 240) {
+						gm12u320->data_buf[i][j] = 0;
+						gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
+						gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
+					} else {
+						gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
+						gm12u320->data_buf[i][j+1] = 0;
+						gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
 					}
 				}
-				kfree(screen_buffer);
-			} else {
-				printk(KERN_WARNING "gm12u320: Failed to allocate screen buffer\n");
 			}
 		}
 

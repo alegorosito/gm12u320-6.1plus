@@ -362,9 +362,15 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	/* Create a simple test framebuffer for the workqueue */
 	printk(KERN_INFO "gm12u320: Creating test framebuffer for workqueue\n");
 	
-	/* For now, skip framebuffer device creation due to GEM vmap issues */
-	printk(KERN_INFO "gm12u320: Skipping framebuffer device creation, using test pattern only\n");
-	printk(KERN_INFO "gm12u320: TODO: Fix GEM vmap issues for proper framebuffer support\n");
+	/* Create a simple framebuffer device /dev/fb1 for userspace copying */
+	ret = register_framebuffer_device(dev, fbdev);
+	if (ret) {
+		printk(KERN_WARNING "gm12u320: Failed to register framebuffer device: %d\n", ret);
+		printk(KERN_INFO "gm12u320: Will use rainbow pattern instead\n");
+	} else {
+		printk(KERN_INFO "gm12u320: Framebuffer device /dev/fb1 created successfully\n");
+		printk(KERN_INFO "gm12u320: You can now use: while true; do cat /dev/fb0 > /dev/fb1; sleep 0.1; done\n");
+	}
 
 	DRM_DEBUG("gm12u320_fbdev_init: SUCCESS\n");
 	
