@@ -91,8 +91,8 @@ int gm12u320_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (ret)
 		return ret;
 
-	vma->vm_flags &= ~VM_PFNMAP;
-	vma->vm_flags |= VM_MIXEDMAP;
+	vm_flags_set(vma, VM_MIXEDMAP);
+	vm_flags_clear(vma, VM_PFNMAP);
 
 	update_vm_cache_attr(to_gm12u320_bo(vma->vm_private_data), vma);
 
@@ -133,25 +133,24 @@ int gm12u320_gem_get_pages(struct gm12u320_gem_object *obj)
 	if (obj->pages)
 		return 0;
 
-	pages = drm_gem_shmem_get_pages(&obj->base);
-	if (IS_ERR(pages))
-		return PTR_ERR(pages);
+	/* Simple implementation without shmem helpers */
+	pages = kvmalloc_array(obj->base.size / PAGE_SIZE, sizeof(struct page *), GFP_KERNEL);
+	if (!pages)
+		return -ENOMEM;
 
 	obj->pages = pages;
-
 	return 0;
 }
 
 void gm12u320_gem_put_pages(struct gm12u320_gem_object *obj)
 {
 	if (obj->base.import_attach) {
-		//drm_free_large(obj->pages);
 		kvfree(obj->pages);
 		obj->pages = NULL;
 		return;
 	}
 
-	drm_gem_shmem_put_pages(&obj->base);
+	kvfree(obj->pages);
 	obj->pages = NULL;
 }
 
@@ -159,11 +158,13 @@ int gm12u320_gem_vmap(struct gm12u320_gem_object *obj)
 {
 	int page_count = obj->base.size / PAGE_SIZE;
 	int ret;
+	struct iosys_map map;
 
 	if (obj->base.import_attach) {
-		obj->vmapping = dma_buf_vmap(obj->base.import_attach->dmabuf);
-		if (!obj->vmapping)
-			return -ENOMEM;
+		ret = dma_buf_vmap(obj->base.import_attach->dmabuf, &map);
+		if (ret)
+			return ret;
+		obj->vmapping = map.vaddr;
 		return 0;
 	}
 
@@ -179,8 +180,11 @@ int gm12u320_gem_vmap(struct gm12u320_gem_object *obj)
 
 void gm12u320_gem_vunmap(struct gm12u320_gem_object *obj)
 {
+	struct iosys_map map;
+
 	if (obj->base.import_attach) {
-		dma_buf_vunmap(obj->base.import_attach->dmabuf, obj->vmapping);
+		iosys_map_set_vaddr(&map, obj->vmapping);
+		dma_buf_vunmap(obj->base.import_attach->dmabuf, &map);
 		return;
 	}
 
@@ -198,7 +202,6 @@ void gm12u320_gem_free_object(struct drm_gem_object *gem_obj)
 
 	if (gem_obj->import_attach) {
 		drm_prime_gem_destroy(gem_obj, obj->sg);
-		put_device(gem_obj->dev->dev);
 	}
 
 	if (obj->pages)
@@ -216,7 +219,7 @@ int gm12u320_gem_mmap(struct drm_file *file, struct drm_device *dev,
 	struct drm_gem_object *obj;
 	int ret = 0;
 
-	obj = drm_gem_object_lookup_file(file, handle);
+	obj = drm_gem_object_lookup(file, handle);
 	if (obj == NULL) {
 		return -ENOENT;
 	}
