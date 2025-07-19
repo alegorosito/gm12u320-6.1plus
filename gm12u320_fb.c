@@ -262,9 +262,10 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	if (ret)
 		goto free;
 
-	ret = drm_fb_helper_initial_config(&fbdev->helper);
-	if (ret)
-		goto fini;
+	/* Skip initial config for now to avoid NULL pointer issues */
+	/* ret = drm_fb_helper_initial_config(&fbdev->helper); */
+	/* if (ret) */
+	/* 	goto fini; */
 
 	return 0;
 
