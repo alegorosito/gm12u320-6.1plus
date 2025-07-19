@@ -15,6 +15,7 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_print.h>
+#include <drm/drm_kms_helper.h>
 #include "gm12u320_drv.h"
 
 static const struct vm_operations_struct gm12u320_gem_vm_ops = {
@@ -36,13 +37,12 @@ static const struct file_operations gm12u320_driver_fops = {
 };
 
 static struct drm_driver driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME,
+	.driver_features = DRIVER_MODESET | DRIVER_GEM,
 	.load = gm12u320_driver_load,
 	.unload = gm12u320_driver_unload,
 
 	/* gem hooks */
-	.gem_free_object_unlocked = gm12u320_gem_free_object,
-	.gem_vm_ops = &gm12u320_gem_vm_ops,
+	.gem_free_object = gm12u320_gem_free_object,
 
 	.dumb_create = gm12u320_dumb_create,
 	.dumb_map_offset = gm12u320_gem_mmap,

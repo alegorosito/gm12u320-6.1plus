@@ -6,10 +6,13 @@
  * more details.
  */
 
-#include <drm/drmP.h>
-#include "gm12u320_drv.h"
+#include <linux/kernel.h>
 #include <linux/shmem_fs.h>
 #include <linux/dma-buf.h>
+#include <drm/drm_gem.h>
+#include <drm/drm_gem_shmem_helper.h>
+#include <drm/drm_print.h>
+#include "gm12u320_drv.h"
 
 struct gm12u320_gem_object *
 gm12u320_gem_alloc_object(struct drm_device *dev, size_t size)
@@ -96,7 +99,7 @@ int gm12u320_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma)
 	return ret;
 }
 
-int gm12u320_gem_fault(struct vm_fault *vmf)
+vm_fault_t gm12u320_gem_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	struct gm12u320_gem_object *obj = to_gm12u320_bo(vma->vm_private_data);

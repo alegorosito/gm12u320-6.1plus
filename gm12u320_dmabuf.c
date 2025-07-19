@@ -17,10 +17,13 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <drm/drmP.h>
-#include "gm12u320_drv.h"
+#include <linux/kernel.h>
 #include <linux/shmem_fs.h>
 #include <linux/dma-buf.h>
+#include <drm/drm_gem.h>
+#include <drm/drm_prime.h>
+#include <drm/drm_print.h>
+#include "gm12u320_drv.h"
 
 struct gm12u320_drm_dmabuf_attachment {
 	struct sg_table sgt;

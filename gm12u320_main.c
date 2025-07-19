@@ -11,8 +11,9 @@
  * License v2. See the file COPYING in the main directory of this archive for
  * more details.
  */
-#include <drm/drmP.h>
+#include <linux/kernel.h>
 #include <linux/dma-buf.h>
+#include <drm/drm_drv.h>
 #include "gm12u320_drv.h"
 
 static bool eco_mode;
