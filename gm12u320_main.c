@@ -121,9 +121,14 @@ static int gm12u320_usb_alloc(struct gm12u320_device *gm12u320)
 	int i, block_size;
 	const char *hdr;
 
+	printk(KERN_INFO "gm12u320: Allocating USB buffers\n");
+	
 	gm12u320->cmd_buf = kmalloc(CMD_SIZE, GFP_KERNEL);
-	if (!gm12u320->cmd_buf)
+	if (!gm12u320->cmd_buf) {
+		printk(KERN_ERR "gm12u320: Failed to allocate cmd_buf\n");
 		return -ENOMEM;
+	}
+	printk(KERN_INFO "gm12u320: cmd_buf allocated at %p\n", gm12u320->cmd_buf);
 
 	for (i = 0; i < GM12U320_BLOCK_COUNT; i++) {
 		if (i == GM12U320_BLOCK_COUNT - 1) {
@@ -135,8 +140,11 @@ static int gm12u320_usb_alloc(struct gm12u320_device *gm12u320)
 		}
 
 		gm12u320->data_buf[i] = kzalloc(block_size, GFP_KERNEL);
-		if (!gm12u320->data_buf[i])
+		if (!gm12u320->data_buf[i]) {
+			printk(KERN_ERR "gm12u320: Failed to allocate data_buf[%d]\n", i);
 			return -ENOMEM;
+		}
+		printk(KERN_INFO "gm12u320: data_buf[%d] allocated at %p\n", i, gm12u320->data_buf[i]);
 
 		memcpy(gm12u320->data_buf[i], hdr, DATA_BLOCK_HEADER_SIZE);
 		memcpy(gm12u320->data_buf[i] +
@@ -144,6 +152,7 @@ static int gm12u320_usb_alloc(struct gm12u320_device *gm12u320)
 		       data_block_footer, DATA_BLOCK_FOOTER_SIZE);
 	}
 
+	printk(KERN_INFO "gm12u320: USB buffers allocated successfully\n");
 	return 0;
 }
 
@@ -246,6 +255,29 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 	int frame = 0;
 	int ret = 0;
 
+	printk(KERN_INFO "gm12u320: Workqueue started, gm12u320=%p\n", gm12u320);
+	
+	/* Check for NULL pointers */
+	if (!gm12u320) {
+		printk(KERN_ERR "gm12u320: NULL gm12u320 device\n");
+		return;
+	}
+	
+	if (!gm12u320->udev) {
+		printk(KERN_ERR "gm12u320: NULL udev\n");
+		return;
+	}
+	
+	if (!gm12u320->cmd_buf) {
+		printk(KERN_ERR "gm12u320: NULL cmd_buf\n");
+		return;
+	}
+	
+	if (!gm12u320->data_buf) {
+		printk(KERN_ERR "gm12u320: NULL data_buf\n");
+		return;
+	}
+
 	while (gm12u320->fb_update.run) {
 		mutex_lock(&gm12u320->fb_update.lock);
 		fb = gm12u320->fb_update.fb;
@@ -335,6 +367,7 @@ void gm12u320_start_fb_update(struct drm_device *dev)
 {
 	struct gm12u320_device *gm12u320 = dev->dev_private;
 
+	printk(KERN_INFO "gm12u320: Starting fb update workqueue\n");
 	mutex_lock(&gm12u320->fb_update.lock);
 	gm12u320->fb_update.run = true;
 	mutex_unlock(&gm12u320->fb_update.lock);
@@ -365,6 +398,7 @@ static void gm12u320_fb_update_timer(struct timer_list *t)
 {
 	struct gm12u320_device *gm12u320 = from_timer(gm12u320, t, fb_update.timer);
 	
+	printk(KERN_INFO "gm12u320: Timer fired, starting workqueue\n");
 	/* Start the framebuffer update workqueue */
 	gm12u320_start_fb_update(gm12u320->ddev);
 }
