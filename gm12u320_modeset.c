@@ -62,8 +62,7 @@ static int gm12u320_crtc_page_flip(struct drm_crtc *crtc,
 	gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 
 	spin_lock_irqsave(&dev->event_lock, flags);
-	if (event)
-		drm_crtc_send_vblank_event_locked(crtc, event);
+	// Notificación manual de vblank eliminada para kernels modernos
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
 	crtc->primary->fb = drm_fb;
