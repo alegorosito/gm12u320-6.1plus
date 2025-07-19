@@ -7,8 +7,14 @@
  */
 
 #include <linux/module.h>
-#include <drm/drmP.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/usb.h>
+#include <linux/fb.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_gem.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_print.h>
 #include "gm12u320_drv.h"
 
 static const struct vm_operations_struct gm12u320_gem_vm_ops = {
