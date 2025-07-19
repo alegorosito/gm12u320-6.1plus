@@ -271,7 +271,7 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 
 	/* Try to initialize framebuffer with error handling */
 	printk(KERN_INFO "gm12u320: Attempting drm_fb_helper_initial_config\n");
-	ret = drm_fb_helper_initial_config(&fbdev->helper, 32);
+	ret = drm_fb_helper_initial_config(&fbdev->helper);
 	if (ret) {
 		printk(KERN_WARNING "gm12u320: drm_fb_helper_initial_config failed: %d, continuing anyway\n", ret);
 		/* Don't fail the entire driver load, just continue without fbdev */

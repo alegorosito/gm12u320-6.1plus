@@ -273,9 +273,12 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		return;
 	}
 	
-	if (!gm12u320->data_buf) {
-		printk(KERN_ERR "gm12u320: NULL data_buf\n");
-		return;
+	/* Check if any data_buf entry is NULL */
+	for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+		if (!gm12u320->data_buf[i]) {
+			printk(KERN_ERR "gm12u320: NULL data_buf[%d]\n", i);
+			return;
+		}
 	}
 
 	while (gm12u320->fb_update.run) {
