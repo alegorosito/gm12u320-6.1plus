@@ -279,6 +279,8 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 	}
 
 	while (gm12u320->fb_update.run) {
+		printk(KERN_INFO "gm12u320: Workqueue loop iteration, frame=%d\n", frame);
+		
 		mutex_lock(&gm12u320->fb_update.lock);
 		fb = gm12u320->fb_update.fb;
 		x1 = gm12u320->fb_update.x1;
@@ -288,8 +290,13 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		gm12u320->fb_update.fb = NULL;
 		mutex_unlock(&gm12u320->fb_update.lock);
 
+		printk(KERN_INFO "gm12u320: fb=%p, x1=%d, x2=%d, y1=%d, y2=%d\n", fb, x1, x2, y1, y2);
+
 		if (fb) {
+			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
+		} else {
+			printk(KERN_INFO "gm12u320: No framebuffer to process, sending blank frame\n");
 		}
 
 		for (block = 0; block < GM12U320_BLOCK_COUNT; block++) {
@@ -347,6 +354,8 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 
 		draw_status_timeout = CMD_TIMEOUT;
 		frame = !frame;
+
+		printk(KERN_INFO "gm12u320: Frame %d sent to device, waiting for next update\n", frame);
 
 		/*
 		 * We must draw a frame every 2s otherwise the projector
