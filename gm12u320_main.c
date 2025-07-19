@@ -299,7 +299,18 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			printk(KERN_INFO "gm12u320: No framebuffer to process, sending blank frame\n");
+			printk(KERN_INFO "gm12u320: No framebuffer to process, sending test pattern\n");
+			/* Fill data buffers with a simple test pattern */
+			for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+				int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+					DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+				/* Fill with a simple pattern: alternating colors */
+				for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
+					gm12u320->data_buf[i][j] = (frame ? 0xFF : 0x00);     /* Red */
+					gm12u320->data_buf[i][j+1] = (frame ? 0x00 : 0xFF);   /* Green */
+					gm12u320->data_buf[i][j+2] = (frame ? 0x00 : 0x00);   /* Blue */
+				}
+			}
 		}
 
 		for (block = 0; block < GM12U320_BLOCK_COUNT; block++) {
