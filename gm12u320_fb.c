@@ -279,10 +279,9 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	*/
 
 	DRM_DEBUG("gm12u320_fbdev_init: SUCCESS\n");
+	
 	return 0;
 
-err_fini:
-	drm_fb_helper_fini(&fbdev->helper);
 err_free:
 	kfree(fbdev);
 	gm12u320->fbdev = NULL;
