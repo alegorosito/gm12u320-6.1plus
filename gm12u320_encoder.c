@@ -51,9 +51,6 @@ gm12u320_encoder_dpms(struct drm_encoder *encoder, int mode)
 
 static const struct drm_encoder_funcs gm12u320_enc_funcs = {
 	.destroy = gm12u320_enc_destroy,
-	.reset = drm_atomic_helper_encoder_reset,
-	.atomic_duplicate_state = drm_atomic_helper_encoder_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_encoder_destroy_state,
 };
 
 struct drm_encoder *gm12u320_encoder_init(struct drm_device *dev)
