@@ -266,12 +266,6 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	/* 	goto fini; */
 
 	return 0;
-
-fini:
-	drm_fb_helper_fini(&fbdev->helper);
-free:
-	kfree(fbdev);
-	return ret;
 }
 
 void gm12u320_fbdev_cleanup(struct drm_device *dev)
