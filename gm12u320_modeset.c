@@ -18,6 +18,7 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_mode_config.h>
+#include <drm/drm_vblank.h>
 #include "gm12u320_drv.h"
 
 static void gm12u320_crtc_dpms(struct drm_crtc *crtc, int mode)
@@ -62,7 +63,7 @@ static int gm12u320_crtc_page_flip(struct drm_crtc *crtc,
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	if (event)
-		drm_crtc_send_vblank_event(crtc, event);
+		drm_crtc_send_vblank_event_locked(crtc, event);
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
 	crtc->primary->fb = drm_fb;
