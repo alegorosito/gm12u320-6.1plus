@@ -17,6 +17,7 @@
 #include <drm/drm_vblank.h>
 #include <linux/fb.h>
 #include <linux/vt_kern.h>
+#include <linux/fs.h>
 #include "gm12u320_drv.h"
 
 /* Function prototypes */
@@ -253,12 +254,19 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	struct fb_info *fb_info;
 	unsigned char *src_buffer;
 	int width, height, bpp, line_length, total_size;
-	int i, j, k;
+	int i, j;
 	
-	/* Try to get the main framebuffer (/dev/fb0) */
-	fb_info = registered_fb[0]; /* Main framebuffer is usually at index 0 */
+	/* Try to get the main framebuffer (/dev/fb0) using file operations */
+	struct file *fb_file = filp_open("/dev/fb0", O_RDONLY, 0);
+	if (IS_ERR(fb_file)) {
+		printk(KERN_DEBUG "gm12u320: Cannot open /dev/fb0: %ld\n", PTR_ERR(fb_file));
+		return -ENODEV;
+	}
+	
+	fb_info = fb_file->private_data;
 	if (!fb_info || !fb_info->screen_base) {
 		printk(KERN_DEBUG "gm12u320: No main framebuffer available\n");
+		filp_close(fb_file, NULL);
 		return -ENODEV;
 	}
 	
@@ -308,6 +316,7 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 		}
 	}
 	
+	filp_close(fb_file, NULL);
 	return total_size;
 }
 
