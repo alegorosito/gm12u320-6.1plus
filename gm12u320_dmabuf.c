@@ -23,6 +23,7 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_prime.h>
 #include <drm/drm_print.h>
+#include <drm/drm_drv.h>
 #include "gm12u320_drv.h"
 
 struct gm12u320_drm_dmabuf_attachment {
@@ -32,7 +33,6 @@ struct gm12u320_drm_dmabuf_attachment {
 };
 
 static int gm12u320_attach_dma_buf(struct dma_buf *dmabuf,
-				   struct device *dev,
 				   struct dma_buf_attachment *attach)
 {
 	struct gm12u320_drm_dmabuf_attachment *gm12u320_attach;
@@ -102,7 +102,7 @@ static struct sg_table *gm12u320_map_dma_buf(struct dma_buf_attachment *attach,
 	}
 
 	page_count = obj->base.size / PAGE_SIZE;
-	obj->sg = drm_prime_pages_to_sg(obj->pages, page_count);
+	obj->sg = drm_prime_pages_to_sg(dev, obj->pages, page_count);
 	if (IS_ERR(obj->sg)) {
 		DRM_ERROR("failed to allocate sgt.\n");
 		return ERR_CAST(obj->sg);
@@ -191,17 +191,21 @@ static int gm12u320_dmabuf_mmap(struct dma_buf *dma_buf,
 	return -EINVAL;
 }
 
+static void gm12u320_dmabuf_release(struct dma_buf *dma_buf)
+{
+	struct gm12u320_gem_object *obj = dma_buf->priv;
+	struct drm_gem_object *gem_obj = &obj->base;
+
+	drm_gem_object_put(gem_obj);
+}
+
 static const struct dma_buf_ops gm12u320_dmabuf_ops = {
 	.attach			= gm12u320_attach_dma_buf,
 	.detach			= gm12u320_detach_dma_buf,
 	.map_dma_buf		= gm12u320_map_dma_buf,
 	.unmap_dma_buf		= gm12u320_unmap_dma_buf,
-	.map			= gm12u320_dmabuf_kmap,
-	.map_atomic		= gm12u320_dmabuf_kmap_atomic,
-	.unmap			= gm12u320_dmabuf_kunmap,
-	.unmap_atomic		= gm12u320_dmabuf_kunmap_atomic,
 	.mmap			= gm12u320_dmabuf_mmap,
-	.release		= drm_gem_dmabuf_release,
+	.release		= gm12u320_dmabuf_release,
 };
 
 struct dma_buf *gm12u320_gem_prime_export(struct drm_device *dev,
@@ -238,7 +242,10 @@ static int gm12u320_prime_create(struct drm_device *dev,
 		return -ENOMEM;
 	}
 
-	drm_prime_sg_to_page_addr_arrays(sg, obj->pages, NULL, npages);
+	/* Simple implementation without complex prime helpers */
+	for (i = 0; i < npages; i++) {
+		obj->pages[i] = sg_page(&sg->sgl[i]);
+	}
 
 	*obj_p = obj;
 	return 0;
