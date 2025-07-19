@@ -271,13 +271,6 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 
 	/* TEMPORARY: Skip initial config to avoid kernel panic */
 	printk(KERN_INFO "gm12u320: Skipping drm_fb_helper_initial_config to avoid panic\n");
-	/*
-	ret = drm_fb_helper_initial_config(&fbdev->helper);
-	if (ret) {
-		printk(KERN_INFO "gm12u320: Failed to set initial config: %d\n", ret);
-		/* Don't fail, just continue without initial config */
-	}
-	*/
 
 	DRM_DEBUG("gm12u320_fbdev_init: SUCCESS\n");
 	
