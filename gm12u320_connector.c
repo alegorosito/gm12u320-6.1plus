@@ -57,7 +57,6 @@ int gm12u320_connector_init(struct drm_device *dev,
 			    struct drm_encoder *encoder)
 {
 	struct drm_connector *connector;
-	struct drm_display_mode *mode;
 
 	connector = kzalloc(sizeof(struct drm_connector), GFP_KERNEL);
 	if (!connector)
@@ -66,7 +65,8 @@ int gm12u320_connector_init(struct drm_device *dev,
 	drm_connector_init(dev, connector, &gm12u320_connector_funcs,
 			   DRM_MODE_CONNECTOR_Unknown);
 
-	/* Add a default mode */
+	/* TEMPORARY: Skip mode addition to avoid kernel panic */
+	/*
 	mode = drm_mode_duplicate(dev, &(struct drm_display_mode){
 		DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390,
 			 1430, 1650, 0, 720, 725, 730, 750, 0,
@@ -76,6 +76,7 @@ int gm12u320_connector_init(struct drm_device *dev,
 	if (mode) {
 		drm_mode_probed_add(connector, mode);
 	}
+	*/
 
 	drm_connector_register(connector);
 	drm_connector_attach_encoder(connector, encoder);
