@@ -22,23 +22,7 @@
 
 
 
-static int gm12u320_connector_get_modes(struct drm_connector *connector)
-{
-	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(connector->dev, &(struct drm_display_mode){
-		DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390,
-			 1430, 1650, 0, 720, 725, 730, 750, 0,
-			 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)
-	});
-
-	if (!mode)
-		return 0;
-
-	drm_mode_probed_add(connector, mode);
-
-	return 1;
-}
 
 static enum drm_connector_status
 gm12u320_detect(struct drm_connector *connector, bool force)
@@ -62,7 +46,6 @@ static void gm12u320_connector_destroy(struct drm_connector *connector)
 
 static const struct drm_connector_funcs gm12u320_connector_funcs = {
 	.detect = gm12u320_detect,
-	.get_modes = gm12u320_connector_get_modes,
 	.destroy = gm12u320_connector_destroy,
 	.set_property = gm12u320_connector_set_property,
 	.reset = drm_atomic_helper_connector_reset,
@@ -74,6 +57,7 @@ int gm12u320_connector_init(struct drm_device *dev,
 			    struct drm_encoder *encoder)
 {
 	struct drm_connector *connector;
+	struct drm_display_mode *mode;
 
 	connector = kzalloc(sizeof(struct drm_connector), GFP_KERNEL);
 	if (!connector)
@@ -81,6 +65,17 @@ int gm12u320_connector_init(struct drm_device *dev,
 
 	drm_connector_init(dev, connector, &gm12u320_connector_funcs,
 			   DRM_MODE_CONNECTOR_Unknown);
+
+	/* Add a default mode */
+	mode = drm_mode_duplicate(dev, &(struct drm_display_mode){
+		DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390,
+			 1430, 1650, 0, 720, 725, 730, 750, 0,
+			 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)
+	});
+
+	if (mode) {
+		drm_mode_probed_add(connector, mode);
+	}
 
 	drm_connector_register(connector);
 	drm_connector_attach_encoder(connector, encoder);
