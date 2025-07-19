@@ -63,8 +63,6 @@ void gm12u320_fb_mark_dirty(struct gm12u320_framebuffer *fb,
 
 static int gm12u320_fb_open(struct fb_info *info, int user)
 {
-	struct gm12u320_fbdev *fbdev = info->par;
-
 	/* If the USB device is gone, we don't accept new opens */
 	return 0;
 }
@@ -212,7 +210,7 @@ static int gm12u320fb_create(struct drm_fb_helper *helper,
 	info->fix.smem_start = (unsigned long)fbdev->fb.obj->vmapping;
 
 	info->fbops = &gm12u320_fb_ops;
-	drm_fb_helper_prepare(dev, &fbdev->helper, 32, &gm12u320_fb_helper_funcs);
+	drm_fb_helper_prepare(dev, &fbdev->helper, 32, NULL);
 #ifdef CONFIG_DRM_FBDEV_EMULATION
 	info->fbdefio = &gm12u320_fb_defio;
 	fb_deferred_io_init(info);
@@ -258,7 +256,7 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 
 	gm12u320->fbdev = fbdev;
 
-	drm_fb_helper_prepare(dev, &fbdev->helper, 32, &gm12u320_fb_helper_funcs);
+	drm_fb_helper_prepare(dev, &fbdev->helper, 32, NULL);
 
 	ret = drm_fb_helper_init(dev, &fbdev->helper);
 	if (ret)
