@@ -300,15 +300,35 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
 			printk(KERN_INFO "gm12u320: No framebuffer to process, sending test pattern\n");
-			/* Fill data buffers with a simple test pattern */
+			/* Fill data buffers with a more interesting test pattern */
 			for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
 				int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
 					DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-				/* Fill with a simple pattern: alternating colors */
+				/* Fill with a rainbow pattern that changes over time */
 				for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
-					gm12u320->data_buf[i][j] = (frame ? 0xFF : 0x00);     /* Red */
-					gm12u320->data_buf[i][j+1] = (frame ? 0x00 : 0xFF);   /* Green */
-					gm12u320->data_buf[i][j+2] = (frame ? 0x00 : 0x00);   /* Blue */
+					int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
+					int time_offset = frame * 100;
+					
+					/* Create a moving rainbow pattern */
+					int hue = (pixel_pos + time_offset) % 360;
+					
+					/* Simple RGB conversion from hue */
+					if (hue < 120) {
+						/* Red to Green */
+						gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);     /* Red */
+						gm12u320->data_buf[i][j+1] = (hue * 255 / 120);         /* Green */
+						gm12u320->data_buf[i][j+2] = 0;                         /* Blue */
+					} else if (hue < 240) {
+						/* Green to Blue */
+						gm12u320->data_buf[i][j] = 0;                           /* Red */
+						gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120); /* Green */
+						gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);       /* Blue */
+					} else {
+						/* Blue to Red */
+						gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);  /* Red */
+						gm12u320->data_buf[i][j+1] = 0;                         /* Green */
+						gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120); /* Blue */
+					}
 				}
 			}
 		}
