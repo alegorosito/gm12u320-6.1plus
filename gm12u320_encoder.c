@@ -16,6 +16,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_atomic_helper.h>
 #include "gm12u320_drv.h"
 
 /* dummy encoder */
@@ -48,16 +49,11 @@ gm12u320_encoder_dpms(struct drm_encoder *encoder, int mode)
 {
 }
 
-static const struct drm_encoder_helper_funcs gm12u320_helper_funcs = {
-	.dpms = gm12u320_encoder_dpms,
-	.prepare = gm12u320_encoder_prepare,
-	.mode_set = gm12u320_encoder_mode_set,
-	.commit = gm12u320_encoder_commit,
-	.disable = gm12u320_encoder_disable,
-};
-
 static const struct drm_encoder_funcs gm12u320_enc_funcs = {
 	.destroy = gm12u320_enc_destroy,
+	.reset = drm_atomic_helper_encoder_reset,
+	.atomic_duplicate_state = drm_atomic_helper_encoder_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_encoder_destroy_state,
 };
 
 struct drm_encoder *gm12u320_encoder_init(struct drm_device *dev)
@@ -70,7 +66,6 @@ struct drm_encoder *gm12u320_encoder_init(struct drm_device *dev)
 
 	drm_encoder_init(dev, encoder, &gm12u320_enc_funcs,
 			 DRM_MODE_ENCODER_TMDS, NULL);
-	drm_encoder_helper_add(encoder, &gm12u320_helper_funcs);
 	encoder->possible_crtcs = 1;
 	return encoder;
 }
