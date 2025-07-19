@@ -232,6 +232,92 @@ static const struct drm_fb_helper_funcs gm12u320_fb_helper_funcs = {
 	.fb_probe = gm12u320fb_create,
 };
 
+/* Simple framebuffer device registration */
+static int register_framebuffer_device(struct drm_device *dev, struct gm12u320_fbdev *fbdev)
+{
+	struct fb_info *info;
+	struct drm_framebuffer *drm_fb;
+	struct drm_mode_fb_cmd2 mode_cmd;
+	struct gm12u320_gem_object *obj;
+	uint32_t size;
+	int ret = 0;
+
+	/* Create a simple 800x600 32bpp framebuffer */
+	mode_cmd.width = 800;
+	mode_cmd.height = 600;
+	mode_cmd.pitches[0] = mode_cmd.width * 4; /* 32bpp = 4 bytes per pixel */
+	mode_cmd.pixel_format = DRM_FORMAT_XRGB8888;
+
+	size = mode_cmd.pitches[0] * mode_cmd.height;
+	size = ALIGN(size, PAGE_SIZE);
+
+	obj = gm12u320_gem_alloc_object(dev, size);
+	if (!obj) {
+		printk(KERN_ERR "gm12u320: Failed to allocate GEM object\n");
+		return -ENOMEM;
+	}
+
+	ret = gm12u320_gem_vmap(obj);
+	if (ret) {
+		printk(KERN_ERR "gm12u320: Failed to vmap GEM object\n");
+		gm12u320_gem_free_object(&obj->base);
+		return ret;
+	}
+
+	/* Create framebuffer */
+	ret = gm12u320_framebuffer_init(dev, &fbdev->fb, &mode_cmd, obj);
+	if (ret) {
+		printk(KERN_ERR "gm12u320: Failed to init framebuffer\n");
+		gm12u320_gem_free_object(&obj->base);
+		return ret;
+	}
+
+	drm_fb = &fbdev->fb.base;
+	fbdev->helper.fb = drm_fb;
+
+	/* Create fb_info */
+	info = framebuffer_alloc(0, NULL);
+	if (!info) {
+		printk(KERN_ERR "gm12u320: Failed to allocate fb_info\n");
+		gm12u320_gem_free_object(&obj->base);
+		return -ENOMEM;
+	}
+
+	strcpy(info->fix.id, "gm12u320fb");
+	info->screen_base = obj->vmapping;
+	info->fix.smem_len = size;
+	info->fix.smem_start = (unsigned long)obj->vmapping;
+	info->fix.type = FB_TYPE_PACKED_PIXELS;
+	info->fix.visual = FB_VISUAL_TRUECOLOR;
+	info->fix.line_length = mode_cmd.pitches[0];
+	info->var.xres = mode_cmd.width;
+	info->var.yres = mode_cmd.height;
+	info->var.bits_per_pixel = 32;
+	info->var.red.length = 8;
+	info->var.green.length = 8;
+	info->var.blue.length = 8;
+	info->var.red.offset = 16;
+	info->var.green.offset = 8;
+	info->var.blue.offset = 0;
+
+	info->fbops = &gm12u320_fb_ops;
+	info->par = fbdev;
+
+	/* Register framebuffer */
+	ret = register_framebuffer(info);
+	if (ret) {
+		printk(KERN_ERR "gm12u320: Failed to register framebuffer: %d\n", ret);
+		framebuffer_release(info);
+		gm12u320_gem_free_object(&obj->base);
+		return ret;
+	}
+
+	fbdev->helper.info = info;
+	printk(KERN_INFO "gm12u320: Framebuffer registered as /dev/fb1\n");
+
+	return 0;
+}
+
 static void gm12u320_fbdev_destroy(struct drm_device *dev,
 				   struct gm12u320_fbdev *fbdev)
 {
@@ -276,8 +362,13 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	/* Create a simple test framebuffer for the workqueue */
 	printk(KERN_INFO "gm12u320: Creating test framebuffer for workqueue\n");
 	
-	/* TODO: Create a simple framebuffer object that the workqueue can use */
-	/* For now, we'll let the workqueue send blank frames */
+	/* Create a simple framebuffer device /dev/fb1 */
+	ret = register_framebuffer_device(dev, fbdev);
+	if (ret) {
+		printk(KERN_WARNING "gm12u320: Failed to register framebuffer device: %d\n", ret);
+	} else {
+		printk(KERN_INFO "gm12u320: Framebuffer device /dev/fb1 created successfully\n");
+	}
 
 	DRM_DEBUG("gm12u320_fbdev_init: SUCCESS\n");
 	
