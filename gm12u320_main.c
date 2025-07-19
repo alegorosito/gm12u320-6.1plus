@@ -375,6 +375,7 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	struct gm12u320_device *gm12u320;
 	int ret = -ENOMEM;
 
+	printk(KERN_INFO "gm12u320: driver_load started\n");
 	DRM_DEBUG("\n");
 	gm12u320 = kzalloc(sizeof(struct gm12u320_device), GFP_KERNEL);
 	if (!gm12u320)
@@ -406,11 +407,15 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 		goto err_wq;
 
 	DRM_DEBUG("\n");
+	printk(KERN_INFO "gm12u320: About to call gm12u320_modeset_init\n");
 	ret = gm12u320_modeset_init(dev);
+	printk(KERN_INFO "gm12u320: gm12u320_modeset_init returned: %d\n", ret);
 	if (ret)
 		goto err_usb;
 
+	printk(KERN_INFO "gm12u320: About to call gm12u320_fbdev_init\n");
 	ret = gm12u320_fbdev_init(dev);
+	printk(KERN_INFO "gm12u320: gm12u320_fbdev_init returned: %d\n", ret);
 	if (ret) {
 		DRM_ERROR("Failed to initialize fbdev: %d\n", ret);
 		goto err_modeset;
