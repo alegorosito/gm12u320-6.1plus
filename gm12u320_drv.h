@@ -20,6 +20,7 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_framebuffer.h>
+#include <drm/drm_encoder.h>
 
 #define DRIVER_NAME		"gm12u320"
 #define DRIVER_DESC		"Grain Media GM12U320 USB projector display"

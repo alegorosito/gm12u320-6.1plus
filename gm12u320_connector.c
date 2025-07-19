@@ -80,22 +80,10 @@ static struct edid gm12u320_edid = {
 	.checksum = 0x40,
 };
 
-static int gm12u320_get_modes(struct drm_connector *connector)
-{
-	drm_connector_update_edid_property(connector, &gm12u320_edid);
-	return drm_add_edid_modes(connector, &gm12u320_edid);
-}
-
 static enum drm_connector_status
 gm12u320_detect(struct drm_connector *connector, bool force)
 {
 	return connector_status_connected;
-}
-
-static struct drm_encoder*
-gm12u320_best_single_encoder(struct drm_connector *connector)
-{
-	return connector->encoder;
 }
 
 static int gm12u320_connector_set_property(struct drm_connector *connector,

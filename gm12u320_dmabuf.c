@@ -154,34 +154,7 @@ static void gm12u320_unmap_dma_buf(struct dma_buf_attachment *attach,
 			attach->dmabuf->size, dir);
 }
 
-static void *gm12u320_dmabuf_kmap(struct dma_buf *dma_buf,
-				  unsigned long page_num)
-{
-	/* TODO */
 
-	return NULL;
-}
-
-static void *gm12u320_dmabuf_kmap_atomic(struct dma_buf *dma_buf,
-					 unsigned long page_num)
-{
-	/* TODO */
-
-	return NULL;
-}
-
-static void gm12u320_dmabuf_kunmap(struct dma_buf *dma_buf,
-				   unsigned long page_num, void *addr)
-{
-	/* TODO */
-}
-
-static void gm12u320_dmabuf_kunmap_atomic(struct dma_buf *dma_buf,
-					  unsigned long page_num,
-					  void *addr)
-{
-	/* TODO */
-}
 
 static int gm12u320_dmabuf_mmap(struct dma_buf *dma_buf,
 				struct vm_area_struct *vma)
@@ -243,6 +216,7 @@ static int gm12u320_prime_create(struct drm_device *dev,
 	}
 
 	/* Simple implementation without complex prime helpers */
+	int i;
 	for (i = 0; i < npages; i++) {
 		obj->pages[i] = sg_page(&sg->sgl[i]);
 	}

@@ -26,28 +26,7 @@ static void gm12u320_enc_destroy(struct drm_encoder *encoder)
 	kfree(encoder);
 }
 
-static void gm12u320_encoder_disable(struct drm_encoder *encoder)
-{
-}
 
-static void gm12u320_encoder_prepare(struct drm_encoder *encoder)
-{
-}
-
-static void gm12u320_encoder_commit(struct drm_encoder *encoder)
-{
-}
-
-static void gm12u320_encoder_mode_set(struct drm_encoder *encoder,
-				 struct drm_display_mode *mode,
-				 struct drm_display_mode *adjusted_mode)
-{
-}
-
-static void
-gm12u320_encoder_dpms(struct drm_encoder *encoder, int mode)
-{
-}
 
 static const struct drm_encoder_funcs gm12u320_enc_funcs = {
 	.destroy = gm12u320_enc_destroy,

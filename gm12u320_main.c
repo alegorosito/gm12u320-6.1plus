@@ -17,6 +17,9 @@
 #include <drm/drm_vblank.h>
 #include "gm12u320_drv.h"
 
+/* Function prototypes */
+void gm12u320_32bpp_to_24bpp_packed(u8 *dst, u8 *src, int len);
+
 static bool eco_mode;
 module_param(eco_mode, bool, 0644);
 MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
@@ -217,73 +220,7 @@ void gm12u320_32bpp_to_24bpp_packed(u8 *dst, u8 *src, int len)
 	}
 }
 
-static void gm12u320_copy_fb_to_blocks(struct gm12u320_framebuffer *fb,
-				       int x1, int x2, int y1, int y2)
-{
-	struct drm_device *dev = fb->base.dev;
-	struct gm12u320_device *gm12u320 = dev->dev_private;
-	int block, dst_offset, len, remain, ret;
-	u8 *src;
 
-	if (fb->obj->base.import_attach) {
-		ret = dma_buf_begin_cpu_access(
-			fb->obj->base.import_attach->dmabuf, DMA_FROM_DEVICE);
-		if (ret) {
-			DRM_ERROR("dma_buf_begin_cpu_access err: %d\n", ret);
-			return;
-		}
-	}
-
-	if (!fb->obj->vmapping) {
-		ret = gm12u320_gem_vmap(fb->obj);
-		if (ret) {
-			DRM_ERROR("failed to vmap fb: %d\n", ret);
-			goto end_cpu_access;
-		}
-	}
-
-	src = fb->obj->vmapping + y1 * fb->base.pitches[0] + x1 * 4;
-
-	x1 += (GM12U320_REAL_WIDTH - GM12U320_USER_WIDTH) / 2;
-	x2 += (GM12U320_REAL_WIDTH - GM12U320_USER_WIDTH) / 2;
-
-	for (; y1 < y2; y1++) {
-		remain = 0;
-		len = (x2 - x1) * 3;
-		dst_offset = (y1 * GM12U320_REAL_WIDTH + x1) * 3;
-		block = dst_offset / DATA_BLOCK_CONTENT_SIZE;
-		dst_offset %= DATA_BLOCK_CONTENT_SIZE;
-
-		if ((dst_offset + len) > DATA_BLOCK_CONTENT_SIZE) {
-			remain = dst_offset + len - DATA_BLOCK_CONTENT_SIZE;
-			len = DATA_BLOCK_CONTENT_SIZE - dst_offset;
-		}
-
-		dst_offset += DATA_BLOCK_HEADER_SIZE;
-		len /= 3;
-
-		gm12u320_32bpp_to_24bpp_packed(
-			gm12u320->data_buf[block] + dst_offset,
-			src, len);
-
-		if (remain) {
-			block++;
-			dst_offset = DATA_BLOCK_HEADER_SIZE;
-			gm12u320_32bpp_to_24bpp_packed(
-				gm12u320->data_buf[block] + dst_offset,
-				src + len * 4, remain / 3);
-		}
-		src += fb->base.pitches[0];
-	}
-
-end_cpu_access:
-	if (fb->obj->base.import_attach) {
-		ret = dma_buf_end_cpu_access(
-			fb->obj->base.import_attach->dmabuf, DMA_FROM_DEVICE);
-		if (ret)
-			DRM_ERROR("dma_buf_end_cpu_access err: %d\n", ret);
-	}
-}
 
 static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 {
