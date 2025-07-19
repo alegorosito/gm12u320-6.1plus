@@ -17,6 +17,7 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_connector.h>
+#include <drm/drm_atomic_helper.h>
 #include "gm12u320_drv.h"
 
 /*
@@ -115,7 +116,6 @@ static const struct drm_connector_funcs gm12u320_connector_funcs = {
 	.detect = gm12u320_detect,
 	.destroy = gm12u320_connector_destroy,
 	.set_property = gm12u320_connector_set_property,
-	.fill_modes = drm_helper_probe_single_connector_modes,
 	.reset = drm_atomic_helper_connector_reset,
 	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
