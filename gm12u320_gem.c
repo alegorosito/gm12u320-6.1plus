@@ -129,16 +129,41 @@ vm_fault_t gm12u320_gem_fault(struct vm_fault *vmf)
 int gm12u320_gem_get_pages(struct gm12u320_gem_object *obj)
 {
 	struct page **pages;
+	int page_count = obj->base.size / PAGE_SIZE;
+	int i;
 
-	if (obj->pages)
+	printk(KERN_INFO "gm12u320: gem_get_pages: Starting, size=%zu, page_count=%d\n", obj->base.size, page_count);
+
+	if (obj->pages) {
+		printk(KERN_INFO "gm12u320: gem_get_pages: Pages already exist\n");
 		return 0;
+	}
 
-	/* Simple implementation without shmem helpers */
-	pages = kvmalloc_array(obj->base.size / PAGE_SIZE, sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
+	/* Allocate pages array */
+	printk(KERN_INFO "gm12u320: gem_get_pages: Allocating pages array\n");
+	pages = kvmalloc_array(page_count, sizeof(struct page *), GFP_KERNEL);
+	if (!pages) {
+		printk(KERN_ERR "gm12u320: gem_get_pages: Failed to allocate pages array\n");
 		return -ENOMEM;
+	}
+
+	/* Allocate actual pages */
+	printk(KERN_INFO "gm12u320: gem_get_pages: Allocating %d pages\n", page_count);
+	for (i = 0; i < page_count; i++) {
+		pages[i] = alloc_page(GFP_KERNEL);
+		if (!pages[i]) {
+			printk(KERN_ERR "gm12u320: gem_get_pages: Failed to allocate page %d\n", i);
+			/* Clean up already allocated pages */
+			while (--i >= 0) {
+				__free_page(pages[i]);
+			}
+			kvfree(pages);
+			return -ENOMEM;
+		}
+	}
 
 	obj->pages = pages;
+	printk(KERN_INFO "gm12u320: gem_get_pages: Success, allocated %d pages\n", page_count);
 	return 0;
 }
 
@@ -160,21 +185,35 @@ int gm12u320_gem_vmap(struct gm12u320_gem_object *obj)
 	int ret;
 	struct iosys_map map;
 
+	printk(KERN_INFO "gm12u320: gem_vmap: Starting, size=%zu, page_count=%d\n", obj->base.size, page_count);
+
 	if (obj->base.import_attach) {
+		printk(KERN_INFO "gm12u320: gem_vmap: Using import_attach\n");
 		ret = dma_buf_vmap(obj->base.import_attach->dmabuf, &map);
-		if (ret)
+		if (ret) {
+			printk(KERN_ERR "gm12u320: gem_vmap: dma_buf_vmap failed: %d\n", ret);
 			return ret;
+		}
 		obj->vmapping = map.vaddr;
+		printk(KERN_INFO "gm12u320: gem_vmap: dma_buf_vmap success\n");
 		return 0;
 	}
 
+	printk(KERN_INFO "gm12u320: gem_vmap: Getting pages\n");
 	ret = gm12u320_gem_get_pages(obj);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "gm12u320: gem_vmap: get_pages failed: %d\n", ret);
 		return ret;
+	}
 
+	printk(KERN_INFO "gm12u320: gem_vmap: Calling vmap\n");
 	obj->vmapping = vmap(obj->pages, page_count, 0, PAGE_KERNEL);
-	if (!obj->vmapping)
+	if (!obj->vmapping) {
+		printk(KERN_ERR "gm12u320: gem_vmap: vmap failed\n");
 		return -ENOMEM;
+	}
+	
+	printk(KERN_INFO "gm12u320: gem_vmap: Success, vmapping=%p\n", obj->vmapping);
 	return 0;
 }
 
