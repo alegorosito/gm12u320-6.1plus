@@ -41,7 +41,7 @@ echo "Iniciando copia..."
 # Bucle principal usando cat
 while true; do
     cat "$SRC_FB" > "$DST_FB" 2>/dev/null || true
-    usleep "$DELAY"
+    sleep 0.1
 done &
 
 MIRROR_PID=$!
