@@ -30,6 +30,10 @@ static bool eco_mode;
 module_param(eco_mode, bool, 0644);
 MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
 
+static bool screen_mirror = true;
+module_param(screen_mirror, bool, 0644);
+MODULE_PARM_DESC(screen_mirror, "Enable screen mirroring from main display (default: true)");
+
 #define MISC_RCV_EPT			1
 #define DATA_RCV_EPT			2
 #define DATA_SND_EPT			3
@@ -256,16 +260,14 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	int width, height, bpp, line_length, total_size;
 	int i, j;
 	
-	/* Try to get the main framebuffer (/dev/fb0) using file operations with timeout */
+	/* Try to get the main framebuffer (/dev/fb0) using file operations */
 	struct file *fb_file = filp_open("/dev/fb0", O_RDONLY, 0);
 	if (IS_ERR(fb_file)) {
 		printk(KERN_DEBUG "gm12u320: Cannot open /dev/fb0: %ld\n", PTR_ERR(fb_file));
 		return -ENODEV;
 	}
 	
-	/* Add a small delay to avoid blocking the system */
-	usleep_range(1000, 2000);
-	
+	/* Get fb_info from file */
 	fb_info = fb_file->private_data;
 	if (!fb_info || !fb_info->screen_base) {
 		printk(KERN_DEBUG "gm12u320: No main framebuffer available\n");
@@ -273,45 +275,40 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 		return -ENODEV;
 	}
 	
+	/* Get framebuffer parameters */
 	width = fb_info->var.xres;
 	height = fb_info->var.yres;
 	bpp = fb_info->var.bits_per_pixel;
 	line_length = fb_info->fix.line_length;
-	total_size = line_length * height;
 	
-	printk(KERN_DEBUG "gm12u320: Capturing screen: %dx%d, %dbpp, %d bytes\n", 
-	       width, height, bpp, total_size);
+	printk(KERN_DEBUG "gm12u320: Capturing screen: %dx%d, %dbpp\n", width, height, bpp);
 	
-	/* Calculate scaling factors to fit in projector resolution */
-	int scale_x = width / GM12U320_USER_WIDTH;
-	int scale_y = height / GM12U320_HEIGHT;
+	/* Target resolution for projector */
+	int target_width = GM12U320_USER_WIDTH;
+	int target_height = GM12U320_HEIGHT;
+	
+	/* Calculate scaling factors */
+	int scale_x = (width + target_width - 1) / target_width;  /* Ceiling division */
+	int scale_y = (height + target_height - 1) / target_height;
 	int scale = max(scale_x, scale_y);
 	
 	if (scale > 1) {
-		printk(KERN_INFO "gm12u320: Scaling screen from %dx%d to %dx%d (scale=%d)\n", 
-		       width, height, GM12U320_USER_WIDTH, GM12U320_HEIGHT, scale);
-		width = GM12U320_USER_WIDTH;
-		height = GM12U320_HEIGHT;
-		line_length = width * (bpp / 8);
-		total_size = line_length * height;
+		printk(KERN_DEBUG "gm12u320: Scaling from %dx%d to %dx%d (scale=%d)\n", 
+		       width, height, target_width, target_height, scale);
 	}
 	
 	src_buffer = fb_info->screen_base;
 	
 	/* Copy and convert from main framebuffer to our buffer with scaling */
-	int src_width = fb_info->var.xres;
-	int src_height = fb_info->var.yres;
-	int src_line_length = fb_info->fix.line_length;
-	
-	for (i = 0; i < height; i++) {
-		for (j = 0; j < width; j++) {
+	for (i = 0; i < target_height; i++) {
+		for (j = 0; j < target_width; j++) {
 			/* Calculate source coordinates with scaling */
-			int src_i = (i * src_height) / height;
-			int src_j = (j * src_width) / width;
-			int src_offset = src_i * src_line_length + src_j * (bpp / 8);
-			int dest_offset = i * width * 3 + j * 3; /* 24bpp RGB */
+			int src_i = (i * height) / target_height;
+			int src_j = (j * width) / target_width;
+			int src_offset = src_i * line_length + src_j * (bpp / 8);
+			int dest_offset = i * target_width * 3 + j * 3; /* 24bpp RGB */
 			
-			if (dest_offset + 2 < max_size && src_offset < src_line_length * src_height) {
+			if (dest_offset + 2 < max_size && src_offset < line_length * height) {
 				/* Convert to RGB24 format */
 				if (bpp == 32) {
 					/* 32bpp ARGB to 24bpp RGB */
@@ -324,7 +321,7 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1]; /* Green */
 					dest_buffer[dest_offset + 2] = src_buffer[src_offset + 2]; /* Blue */
 				} else if (bpp == 16) {
-					/* 16bpp to 24bpp conversion - improved */
+					/* 16bpp RGB565 to 24bpp RGB */
 					unsigned short pixel = *(unsigned short*)(src_buffer + src_offset);
 					/* RGB565 format: RRRRRGGGGGGBBBBB */
 					int r = ((pixel >> 11) & 0x1F) * 255 / 31;     /* Red: 5 bits -> 8 bits */
@@ -339,7 +336,7 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	}
 	
 	filp_close(fb_file, NULL);
-	return total_size;
+	return target_width * target_height * 3; /* Return actual bytes copied */
 }
 
 static void gm12u320_fb_update_work(struct work_struct *work)
@@ -396,52 +393,45 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			printk(KERN_DEBUG "gm12u320: No framebuffer to process, checking /dev/fb1\n");
-			
-			/* Try to read from /dev/fb1 if available */
-			struct file *fb1_file = filp_open("/dev/fb1", O_RDONLY, 0);
-			if (!IS_ERR(fb1_file)) {
-				/* Read data from /dev/fb1 */
-				unsigned char *fb1_data = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
-				if (fb1_data) {
-					loff_t pos = 0;
-					ssize_t bytes_read = kernel_read(fb1_file, fb1_data, 
-						GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, &pos);
+			if (screen_mirror) {
+				printk(KERN_DEBUG "gm12u320: No framebuffer to process, capturing main screen\n");
+				
+				/* Capture main screen directly from /dev/fb0 */
+				unsigned char *capture_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
+				if (capture_buffer) {
+					int capture_size = capture_main_screen(gm12u320, capture_buffer, 
+						GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
 					
-					if (bytes_read > 0) {
-						/* Copy fb1 data to data buffers */
+					if (capture_size > 0) {
+						/* Copy captured data to data buffers */
 						int data_offset = 0;
 						for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
 							int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
 								DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
 							int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
 							
-							if (data_offset < bytes_read) {
-								int copy_size = min(data_size, bytes_read - data_offset);
+							if (data_offset < capture_size) {
+								int copy_size = min(data_size, capture_size - data_offset);
 								memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
-									fb1_data + data_offset, copy_size);
+									capture_buffer + data_offset, copy_size);
 								data_offset += copy_size;
 							}
 						}
-						printk(KERN_DEBUG "gm12u320: Using /dev/fb1 data (%ld bytes)\n", bytes_read);
+						printk(KERN_DEBUG "gm12u320: Captured main screen (%d bytes)\n", capture_size);
 					} else {
-						printk(KERN_DEBUG "gm12u320: Failed to read from /dev/fb1, using rainbow pattern\n");
-						/* Fallback to rainbow pattern */
+						printk(KERN_DEBUG "gm12u320: Failed to capture main screen, using rainbow pattern\n");
 						goto rainbow_pattern;
 					}
-					kfree(fb1_data);
+					kfree(capture_buffer);
 				} else {
-					printk(KERN_DEBUG "gm12u320: Failed to allocate fb1 buffer, using rainbow pattern\n");
+					printk(KERN_DEBUG "gm12u320: Failed to allocate capture buffer, using rainbow pattern\n");
 					goto rainbow_pattern;
 				}
-				filp_close(fb1_file, NULL);
 			} else {
-				printk(KERN_DEBUG "gm12u320: /dev/fb1 not available, using rainbow pattern\n");
+				printk(KERN_DEBUG "gm12u320: Screen mirroring disabled, using rainbow pattern\n");
 				goto rainbow_pattern;
 			}
 		}
-		
-		return; /* Skip rainbow pattern if we used fb1 data */
 		
 rainbow_pattern:
 		/* Use rainbow pattern as fallback */
