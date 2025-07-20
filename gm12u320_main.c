@@ -375,6 +375,7 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		}
 	}
 
+restart_loop:
 	while (gm12u320->fb_update.run) {
 		printk(KERN_INFO "gm12u320: Workqueue loop iteration, frame=%d\n", frame);
 		
@@ -437,32 +438,7 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		/* Continue with sending data to projector (both captured and rainbow pattern) */
 		
 send_data:
-		
-rainbow_pattern:
-		/* Use rainbow pattern as fallback */
-		for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-			int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-				DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-			for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
-				int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
-				int time_offset = frame * 100;
-				int hue = (pixel_pos + time_offset) % 360;
-				
-				if (hue < 120) {
-					gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
-					gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
-					gm12u320->data_buf[i][j+2] = 0;
-				} else if (hue < 240) {
-					gm12u320->data_buf[i][j] = 0;
-					gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
-					gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
-				} else {
-					gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
-					gm12u320->data_buf[i][j+1] = 0;
-					gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
-				}
-			}
-		}
+		/* Send captured data to projector */
 
 		for (block = 0; block < GM12U320_BLOCK_COUNT; block++) {
 			if (block == GM12U320_BLOCK_COUNT - 1)
@@ -536,8 +512,8 @@ continue_loop:
 	wait_event_timeout(gm12u320->fb_update.waitq,
 			   gm12u320_fb_update_ready(gm12u320),
 			   msecs_to_jiffies(IDLE_TIMEOUT));
-	}
-	return;
+	goto restart_loop;
+	
 err:
 	/* Do not log errors caused by module unload or device unplug */
 	if (ret != -ECONNRESET && ret != -ESHUTDOWN)
