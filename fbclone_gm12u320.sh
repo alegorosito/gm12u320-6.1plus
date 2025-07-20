@@ -65,9 +65,9 @@ else
     echo -e "${GREEN}Source resolution: ${WIDTH}x${HEIGHT}, ${BPP}bpp${NC}"
 fi
 
-# Target resolution for GM12U320
-TARGET_WIDTH=800
-TARGET_HEIGHT=600
+# Target resolution for GM12U320 (reduced for memory constraints)
+TARGET_WIDTH=640
+TARGET_HEIGHT=480
 TARGET_BPP=24
 
 echo -e "${GREEN}Target resolution: ${TARGET_WIDTH}x${TARGET_HEIGHT}, ${TARGET_BPP}bpp${NC}"

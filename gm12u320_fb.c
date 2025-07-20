@@ -244,11 +244,11 @@ static int register_framebuffer_device(struct drm_device *dev, struct gm12u320_f
 	
 	printk(KERN_INFO "gm12u320: register_framebuffer_device: Starting\n");
 
-	/* Create a simple 800x600 32bpp framebuffer */
-	mode_cmd.width = 800;
-	mode_cmd.height = 600;
-	mode_cmd.pitches[0] = mode_cmd.width * 4; /* 32bpp = 4 bytes per pixel */
-	mode_cmd.pixel_format = DRM_FORMAT_XRGB8888;
+	/* Create a simple 640x480 24bpp framebuffer (smaller size) */
+	mode_cmd.width = 640;
+	mode_cmd.height = 480;
+	mode_cmd.pitches[0] = mode_cmd.width * 3; /* 24bpp = 3 bytes per pixel */
+	mode_cmd.pixel_format = DRM_FORMAT_RGB888;
 
 	size = mode_cmd.pitches[0] * mode_cmd.height;
 	size = ALIGN(size, PAGE_SIZE);
@@ -296,7 +296,7 @@ static int register_framebuffer_device(struct drm_device *dev, struct gm12u320_f
 	info->fix.line_length = mode_cmd.pitches[0];
 	info->var.xres = mode_cmd.width;
 	info->var.yres = mode_cmd.height;
-	info->var.bits_per_pixel = 32;
+	info->var.bits_per_pixel = 24;
 	info->var.red.length = 8;
 	info->var.green.length = 8;
 	info->var.blue.length = 8;
