@@ -30,7 +30,7 @@ static bool eco_mode;
 module_param(eco_mode, bool, 0644);
 MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
 
-static bool screen_mirror = true;
+static bool screen_mirror = false;
 module_param(screen_mirror, bool, 0644);
 MODULE_PARM_DESC(screen_mirror, "Enable screen mirroring from main display (default: true)");
 
@@ -418,9 +418,6 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 							}
 						}
 						printk(KERN_DEBUG "gm12u320: Captured main screen (%d bytes)\n", capture_size);
-						kfree(capture_buffer);
-						/* Continue to send captured data to projector */
-						goto send_data;
 					} else {
 						printk(KERN_DEBUG "gm12u320: Failed to capture main screen, using rainbow pattern\n");
 						goto rainbow_pattern;
@@ -437,8 +434,6 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		}
 		
 		/* Continue with sending data to projector (both captured and rainbow pattern) */
-		
-send_data:
 		
 rainbow_pattern:
 		/* Use rainbow pattern as fallback */
