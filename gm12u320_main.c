@@ -418,6 +418,9 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 							}
 						}
 						printk(KERN_DEBUG "gm12u320: Captured main screen (%d bytes)\n", capture_size);
+						kfree(capture_buffer);
+						/* Continue to send captured data to projector */
+						goto send_data;
 					} else {
 						printk(KERN_DEBUG "gm12u320: Failed to capture main screen, using rainbow pattern\n");
 						goto rainbow_pattern;
@@ -434,6 +437,8 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 		}
 		
 		/* Continue with sending data to projector (both captured and rainbow pattern) */
+		
+send_data:
 		
 rainbow_pattern:
 		/* Use rainbow pattern as fallback */
