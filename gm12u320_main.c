@@ -56,7 +56,7 @@ MODULE_PARM_DESC(screen_mirror, "Enable screen mirroring from main display (defa
 
 #define CMD_TIMEOUT			200
 #define DATA_TIMEOUT			1000
-#define IDLE_TIMEOUT			500	/* Increased to 500ms to reduce system load */
+#define IDLE_TIMEOUT			100	/* 100ms = 10 FPS for smooth projection */
 #define FIRST_FRAME_TIMEOUT		2000
 
 #define MISC_REQ_GET_SET_ECO_A		0xff
@@ -393,47 +393,50 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			if (screen_mirror) {
-				printk(KERN_DEBUG "gm12u320: No framebuffer to process, capturing main screen\n");
+			/* Always capture main screen - no rainbow pattern fallback */
+			printk(KERN_DEBUG "gm12u320: Capturing main screen for projection\n");
+			
+			/* Capture main screen directly from /dev/fb0 */
+			unsigned char *capture_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
+			if (capture_buffer) {
+				int capture_size = capture_main_screen(gm12u320, capture_buffer, 
+					GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
 				
-				/* Capture main screen directly from /dev/fb0 */
-				unsigned char *capture_buffer = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
-				if (capture_buffer) {
-					int capture_size = capture_main_screen(gm12u320, capture_buffer, 
-						GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3);
-					
-					if (capture_size > 0) {
-						/* Copy captured data to data buffers */
-						int data_offset = 0;
-						for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-							int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-								DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-							int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
-							
-							if (data_offset < capture_size) {
-								int copy_size = min(data_size, capture_size - data_offset);
-								memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
-									capture_buffer + data_offset, copy_size);
-								data_offset += copy_size;
-							}
+				if (capture_size > 0) {
+					/* Copy captured data to data buffers */
+					int data_offset = 0;
+					for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+						int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+							DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+						int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
+						
+						if (data_offset < capture_size) {
+							int copy_size = min(data_size, capture_size - data_offset);
+							memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
+								capture_buffer + data_offset, copy_size);
+							data_offset += copy_size;
 						}
-						printk(KERN_DEBUG "gm12u320: Captured main screen (%d bytes)\n", capture_size);
-					} else {
-						printk(KERN_DEBUG "gm12u320: Failed to capture main screen, using rainbow pattern\n");
-						goto rainbow_pattern;
 					}
+					printk(KERN_DEBUG "gm12u320: Captured main screen (%d bytes) - projecting directly\n", capture_size);
 					kfree(capture_buffer);
+					/* Go directly to sending data - no rainbow pattern */
+					goto send_data;
 				} else {
-					printk(KERN_DEBUG "gm12u320: Failed to allocate capture buffer, using rainbow pattern\n");
-					goto rainbow_pattern;
+					printk(KERN_ERR "gm12u320: Failed to capture main screen - skipping frame\n");
+					kfree(capture_buffer);
+					/* Skip this frame and continue */
+					goto continue_loop;
 				}
 			} else {
-				printk(KERN_DEBUG "gm12u320: Screen mirroring disabled, using rainbow pattern\n");
-				goto rainbow_pattern;
+				printk(KERN_ERR "gm12u320: Failed to allocate capture buffer - skipping frame\n");
+				/* Skip this frame and continue */
+				goto continue_loop;
 			}
 		}
 		
 		/* Continue with sending data to projector (both captured and rainbow pattern) */
+		
+send_data:
 		
 rainbow_pattern:
 		/* Use rainbow pattern as fallback */
@@ -520,12 +523,19 @@ rainbow_pattern:
 		printk(KERN_INFO "gm12u320: Frame %d sent to device, waiting for next update\n", frame);
 
 		/*
-		 * We must draw a frame every 2s otherwise the projector
-		 * switches back to showing its logo.
+		 * Wait for next frame at 10 FPS (100ms interval)
 		 */
 		wait_event_timeout(gm12u320->fb_update.waitq,
 				   gm12u320_fb_update_ready(gm12u320),
 				   msecs_to_jiffies(IDLE_TIMEOUT));
+	}
+	return;
+	
+continue_loop:
+	/* Skip this frame and continue to next iteration */
+	wait_event_timeout(gm12u320->fb_update.waitq,
+			   gm12u320_fb_update_ready(gm12u320),
+			   msecs_to_jiffies(IDLE_TIMEOUT));
 	}
 	return;
 err:
