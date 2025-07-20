@@ -255,87 +255,35 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
-	struct fb_info *fb_info;
-	unsigned char *src_buffer;
-	int width, height, bpp, line_length, total_size;
-	int i, j;
-	
-	/* Try to get the main framebuffer (/dev/fb0) using file operations */
-	struct file *fb_file = filp_open("/dev/fb0", O_RDONLY, 0);
-	if (IS_ERR(fb_file)) {
-		printk(KERN_DEBUG "gm12u320: Cannot open /dev/fb0: %ld\n", PTR_ERR(fb_file));
-		return -ENODEV;
-	}
-	
-	/* Get fb_info from file */
-	fb_info = fb_file->private_data;
-	if (!fb_info || !fb_info->screen_base) {
-		printk(KERN_DEBUG "gm12u320: No main framebuffer available\n");
-		filp_close(fb_file, NULL);
-		return -ENODEV;
-	}
-	
-	/* Get framebuffer parameters */
-	width = fb_info->var.xres;
-	height = fb_info->var.yres;
-	bpp = fb_info->var.bits_per_pixel;
-	line_length = fb_info->fix.line_length;
-	
-	printk(KERN_DEBUG "gm12u320: Capturing screen: %dx%d, %dbpp\n", width, height, bpp);
+	/* Use virtual display instead of capturing /dev/fb0 */
+	/* This prevents blocking the main GUI */
 	
 	/* Target resolution for projector */
 	int target_width = GM12U320_USER_WIDTH;
 	int target_height = GM12U320_HEIGHT;
 	
-	/* Calculate scaling factors */
-	int scale_x = (width + target_width - 1) / target_width;  /* Ceiling division */
-	int scale_y = (height + target_height - 1) / target_height;
-	int scale = max(scale_x, scale_y);
+	printk(KERN_DEBUG "gm12u320: Using virtual display: %dx%d\n", target_width, target_height);
 	
-	if (scale > 1) {
-		printk(KERN_DEBUG "gm12u320: Scaling from %dx%d to %dx%d (scale=%d)\n", 
-		       width, height, target_width, target_height, scale);
-	}
-	
-	src_buffer = fb_info->screen_base;
-	
-	/* Copy and convert from main framebuffer to our buffer with scaling */
+	/* Generate a test pattern or use a static image */
+	/* For now, create a simple gradient pattern */
+	int i, j;
 	for (i = 0; i < target_height; i++) {
 		for (j = 0; j < target_width; j++) {
-			/* Calculate source coordinates with scaling */
-			int src_i = (i * height) / target_height;
-			int src_j = (j * width) / target_width;
-			int src_offset = src_i * line_length + src_j * (bpp / 8);
-			int dest_offset = i * target_width * 3 + j * 3; /* 24bpp RGB */
+			int dest_offset = i * target_width * 3 + j * 3;
 			
-			if (dest_offset + 2 < max_size && src_offset < line_length * height) {
-				/* Convert to RGB24 format */
-				if (bpp == 32) {
-					/* 32bpp ARGB to 24bpp RGB */
-					dest_buffer[dest_offset] = src_buffer[src_offset + 2];     /* Red */
-					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1];   /* Green */
-					dest_buffer[dest_offset + 2] = src_buffer[src_offset];       /* Blue */
-				} else if (bpp == 24) {
-					/* 24bpp to 24bpp (copy) */
-					dest_buffer[dest_offset] = src_buffer[src_offset];         /* Red */
-					dest_buffer[dest_offset + 1] = src_buffer[src_offset + 1]; /* Green */
-					dest_buffer[dest_offset + 2] = src_buffer[src_offset + 2]; /* Blue */
-				} else if (bpp == 16) {
-					/* 16bpp RGB565 to 24bpp RGB */
-					unsigned short pixel = *(unsigned short*)(src_buffer + src_offset);
-					/* RGB565 format: RRRRRGGGGGGBBBBB */
-					int r = ((pixel >> 11) & 0x1F) * 255 / 31;     /* Red: 5 bits -> 8 bits */
-					int g = ((pixel >> 5) & 0x3F) * 255 / 63;      /* Green: 6 bits -> 8 bits */
-					int b = (pixel & 0x1F) * 255 / 31;             /* Blue: 5 bits -> 8 bits */
-					dest_buffer[dest_offset] = r;     /* Red */
-					dest_buffer[dest_offset + 1] = g; /* Green */
-					dest_buffer[dest_offset + 2] = b; /* Blue */
-				}
+			if (dest_offset + 2 < max_size) {
+				/* Create a gradient pattern */
+				int r = (j * 255) / target_width;
+				int g = (i * 255) / target_height;
+				int b = 128;
+				
+				dest_buffer[dest_offset] = r;     /* Red */
+				dest_buffer[dest_offset + 1] = g; /* Green */
+				dest_buffer[dest_offset + 2] = b; /* Blue */
 			}
 		}
 	}
 	
-	filp_close(fb_file, NULL);
 	return target_width * target_height * 3; /* Return actual bytes copied */
 }
 
