@@ -30,7 +30,7 @@ static bool eco_mode;
 module_param(eco_mode, bool, 0644);
 MODULE_PARM_DESC(eco_mode, "Turn on Eco mode (less bright, more silent)");
 
-static bool screen_mirror = false;
+static bool screen_mirror = true;
 module_param(screen_mirror, bool, 0644);
 MODULE_PARM_DESC(screen_mirror, "Enable screen mirroring from main display (default: true)");
 
