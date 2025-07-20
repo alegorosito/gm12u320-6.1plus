@@ -433,6 +433,8 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			}
 		}
 		
+		/* Continue with sending data to projector (both captured and rainbow pattern) */
+		
 rainbow_pattern:
 		/* Use rainbow pattern as fallback */
 		for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
