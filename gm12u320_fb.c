@@ -241,6 +241,8 @@ static int register_framebuffer_device(struct drm_device *dev, struct gm12u320_f
 	struct gm12u320_gem_object *obj;
 	uint32_t size;
 	int ret = 0;
+	
+	printk(KERN_INFO "gm12u320: register_framebuffer_device: Starting\n");
 
 	/* Create a simple 800x600 32bpp framebuffer */
 	mode_cmd.width = 800;
@@ -251,11 +253,13 @@ static int register_framebuffer_device(struct drm_device *dev, struct gm12u320_f
 	size = mode_cmd.pitches[0] * mode_cmd.height;
 	size = ALIGN(size, PAGE_SIZE);
 
+	printk(KERN_INFO "gm12u320: Allocating GEM object of size %u\n", size);
 	obj = gm12u320_gem_alloc_object(dev, size);
 	if (!obj) {
 		printk(KERN_ERR "gm12u320: Failed to allocate GEM object\n");
 		return -ENOMEM;
 	}
+	printk(KERN_INFO "gm12u320: GEM object allocated successfully\n");
 
 	ret = gm12u320_gem_vmap(obj);
 	if (ret) {
@@ -363,6 +367,7 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 	printk(KERN_INFO "gm12u320: Creating test framebuffer for workqueue\n");
 	
 	/* Create a simple framebuffer device /dev/fb1 for userspace copying */
+	printk(KERN_INFO "gm12u320: Attempting to register framebuffer device...\n");
 	ret = register_framebuffer_device(dev, fbdev);
 	if (ret) {
 		printk(KERN_WARNING "gm12u320: Failed to register framebuffer device: %d\n", ret);
