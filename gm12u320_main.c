@@ -396,30 +396,75 @@ static void gm12u320_fb_update_work(struct work_struct *work)
 			printk(KERN_INFO "gm12u320: Processing framebuffer\n");
 			gm12u320_fb_mark_dirty(fb, 0, GM12U320_USER_WIDTH, 0, GM12U320_HEIGHT);
 		} else {
-			printk(KERN_DEBUG "gm12u320: No framebuffer to process, using rainbow pattern\n");
+			printk(KERN_DEBUG "gm12u320: No framebuffer to process, checking /dev/fb1\n");
 			
-			/* Use rainbow pattern - userspace can copy /dev/fb0 to /dev/fb1 for screen mirroring */
-			for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
-				int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
-					DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
-				for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
-					int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
-					int time_offset = frame * 100;
-					int hue = (pixel_pos + time_offset) % 360;
+			/* Try to read from /dev/fb1 if available */
+			struct file *fb1_file = filp_open("/dev/fb1", O_RDONLY, 0);
+			if (!IS_ERR(fb1_file)) {
+				/* Read data from /dev/fb1 */
+				unsigned char *fb1_data = kmalloc(GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, GFP_KERNEL);
+				if (fb1_data) {
+					loff_t pos = 0;
+					ssize_t bytes_read = kernel_read(fb1_file, fb1_data, 
+						GM12U320_USER_WIDTH * GM12U320_HEIGHT * 3, &pos);
 					
-					if (hue < 120) {
-						gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
-						gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
-						gm12u320->data_buf[i][j+2] = 0;
-					} else if (hue < 240) {
-						gm12u320->data_buf[i][j] = 0;
-						gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
-						gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
+					if (bytes_read > 0) {
+						/* Copy fb1 data to data buffers */
+						int data_offset = 0;
+						for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+							int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+								DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+							int data_size = block_size - DATA_BLOCK_HEADER_SIZE - DATA_BLOCK_FOOTER_SIZE;
+							
+							if (data_offset < bytes_read) {
+								int copy_size = min(data_size, bytes_read - data_offset);
+								memcpy(gm12u320->data_buf[i] + DATA_BLOCK_HEADER_SIZE, 
+									fb1_data + data_offset, copy_size);
+								data_offset += copy_size;
+							}
+						}
+						printk(KERN_DEBUG "gm12u320: Using /dev/fb1 data (%ld bytes)\n", bytes_read);
 					} else {
-						gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
-						gm12u320->data_buf[i][j+1] = 0;
-						gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
+						printk(KERN_DEBUG "gm12u320: Failed to read from /dev/fb1, using rainbow pattern\n");
+						/* Fallback to rainbow pattern */
+						goto rainbow_pattern;
 					}
+					kfree(fb1_data);
+				} else {
+					printk(KERN_DEBUG "gm12u320: Failed to allocate fb1 buffer, using rainbow pattern\n");
+					goto rainbow_pattern;
+				}
+				filp_close(fb1_file, NULL);
+			} else {
+				printk(KERN_DEBUG "gm12u320: /dev/fb1 not available, using rainbow pattern\n");
+				goto rainbow_pattern;
+			}
+		}
+		
+		return; /* Skip rainbow pattern if we used fb1 data */
+		
+rainbow_pattern:
+		/* Use rainbow pattern as fallback */
+		for (int i = 0; i < GM12U320_BLOCK_COUNT; i++) {
+			int block_size = (i == GM12U320_BLOCK_COUNT - 1) ? 
+				DATA_LAST_BLOCK_SIZE : DATA_BLOCK_SIZE;
+			for (int j = DATA_BLOCK_HEADER_SIZE; j < block_size - DATA_BLOCK_FOOTER_SIZE; j += 3) {
+				int pixel_pos = (j - DATA_BLOCK_HEADER_SIZE) / 3;
+				int time_offset = frame * 100;
+				int hue = (pixel_pos + time_offset) % 360;
+				
+				if (hue < 120) {
+					gm12u320->data_buf[i][j] = 255 - (hue * 255 / 120);
+					gm12u320->data_buf[i][j+1] = (hue * 255 / 120);
+					gm12u320->data_buf[i][j+2] = 0;
+				} else if (hue < 240) {
+					gm12u320->data_buf[i][j] = 0;
+					gm12u320->data_buf[i][j+1] = 255 - ((hue - 120) * 255 / 120);
+					gm12u320->data_buf[i][j+2] = ((hue - 120) * 255 / 120);
+				} else {
+					gm12u320->data_buf[i][j] = ((hue - 240) * 255 / 120);
+					gm12u320->data_buf[i][j+1] = 0;
+					gm12u320->data_buf[i][j+2] = 255 - ((hue - 240) * 255 / 120);
 				}
 			}
 		}
