@@ -18,16 +18,16 @@ void print_endpoint_info(libusb_device *device) {
     
     printf("📊 Información de endpoints:\n");
     for (int i = 0; i < config->bNumInterfaces; i++) {
-        const libusb_interface *interface = &config->interface[i];
+        const struct libusb_interface *interface = &config->interface[i];
         printf("Interfaz %d:\n", i);
         
         for (int j = 0; j < interface->num_altsetting; j++) {
-            const libusb_interface_descriptor *altsetting = &interface->altsetting[j];
+            const struct libusb_interface_descriptor *altsetting = &interface->altsetting[j];
             printf("  Configuración alternativa %d:\n", j);
             printf("    Número de endpoints: %d\n", altsetting->bNumEndpoints);
             
             for (int k = 0; k < altsetting->bNumEndpoints; k++) {
-                const libusb_endpoint_descriptor *endpoint = &altsetting->endpoint[k];
+                const struct libusb_endpoint_descriptor *endpoint = &altsetting->endpoint[k];
                 printf("    Endpoint 0x%02x:\n", endpoint->bEndpointAddress);
                 printf("      Dirección: 0x%02x\n", endpoint->bEndpointAddress);
                 printf("      Atributos: 0x%02x\n", endpoint->bmAttributes);
@@ -83,7 +83,7 @@ int main() {
     printf("✅ Dispositivo USB abierto correctamente\n");
     
     // Obtener información del dispositivo
-    libusb_device_descriptor desc;
+    struct libusb_device_descriptor desc;
     result = libusb_get_device_descriptor(device, &desc);
     if (result == 0) {
         printf("📋 Descriptor del dispositivo:\n");
