@@ -32,6 +32,46 @@ def download_image(url):
         print(f"❌ Error downloading image: {e}")
         return None
 
+def create_simple_test_image():
+    """Create a simple test image with solid colors for debugging"""
+    try:
+        # Create image array using numpy for better control
+        image_array = np.zeros((PROJECTOR_HEIGHT, PROJECTOR_WIDTH, 3), dtype=np.uint8)
+        
+        # Create a simple pattern: red, green, blue stripes
+        stripe_height = PROJECTOR_HEIGHT // 3
+        
+        # Red stripe (top)
+        image_array[0:stripe_height, :, 0] = 255  # Red channel
+        image_array[0:stripe_height, :, 1] = 0    # Green channel
+        image_array[0:stripe_height, :, 2] = 0    # Blue channel
+        
+        # Green stripe (middle)
+        image_array[stripe_height:2*stripe_height, :, 0] = 0    # Red channel
+        image_array[stripe_height:2*stripe_height, :, 1] = 255  # Green channel
+        image_array[stripe_height:2*stripe_height, :, 2] = 0    # Blue channel
+        
+        # Blue stripe (bottom)
+        image_array[2*stripe_height:, :, 0] = 0    # Red channel
+        image_array[2*stripe_height:, :, 1] = 0    # Green channel
+        image_array[2*stripe_height:, :, 2] = 255  # Blue channel
+        
+        # Add a white border
+        border_width = 20
+        image_array[0:border_width, :, :] = 255  # Top border
+        image_array[-border_width:, :, :] = 255  # Bottom border
+        image_array[:, 0:border_width, :] = 255  # Left border
+        image_array[:, -border_width:, :] = 255  # Right border
+        
+        # Convert numpy array to PIL Image
+        image = Image.fromarray(image_array, 'RGB')
+        
+        print("✅ Simple test image created with RGB stripes")
+        return image
+    except Exception as e:
+        print(f"❌ Error creating simple test image: {e}")
+        return None
+
 def create_text_image(text="GM12U320 Projector", subtitle="Image Display Test"):
     """Create a text-based image that's easy to read"""
     try:
@@ -218,11 +258,11 @@ def main():
         # Download and process image
         image = download_image(url)
         if image is None:
-            print("⚠️  Using text image instead")
-            image = create_text_image("Custom Image Failed", "Using Fallback")
+            print("⚠️  Using simple test image instead")
+            image = create_simple_test_image()
     else:
-        print("🎯 Creating text image")
-        image = create_text_image("GM12U320 Projector", "Image Display Working!")
+        print("🎯 Creating simple test image")
+        image = create_simple_test_image()
     
     if image is None:
         print("⚠️  Using test pattern instead")
