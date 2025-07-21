@@ -180,9 +180,14 @@ static int gm12u320_misc_request(struct gm12u320_device *gm12u320,
 	int ret, len;
 	u8 *buf, val;
 
+	printk(KERN_INFO "gm12u320: misc_request called with req_a=0x%02x, req_b=0x%02x, arg_a=0x%02x, arg_b=0x%02x, arg_c=0x%02x, arg_d=0x%02x\n",
+	       req_a, req_b, arg_a, arg_b, arg_c, arg_d);
+
 	buf = kmalloc(CMD_SIZE, GFP_KERNEL);
-	if (!buf)
+	if (!buf) {
+		printk(KERN_ERR "gm12u320: Failed to allocate buffer for misc request\n");
 		return -ENOMEM;
+	}
 
 	memcpy(buf, &cmd_misc, CMD_SIZE);
 	buf[20] = req_a;
@@ -193,37 +198,47 @@ static int gm12u320_misc_request(struct gm12u320_device *gm12u320,
 	buf[25] = arg_d;
 
 	/* Send request */
+	printk(KERN_INFO "gm12u320: Sending USB bulk message to endpoint %d\n", MISC_SND_EPT);
 	ret = usb_bulk_msg(gm12u320->udev,
 			   usb_sndbulkpipe(gm12u320->udev, MISC_SND_EPT),
 			   buf, CMD_SIZE, &len, CMD_TIMEOUT);
 	if (ret || len != CMD_SIZE) {
+		printk(KERN_ERR "gm12u320: USB send error: ret=%d, len=%d, expected=%d\n", ret, len, CMD_SIZE);
 		dev_err(&gm12u320->udev->dev, "Misc. req. error %d\n", ret);
 		ret = -EIO;
 		goto leave;
 	}
+	printk(KERN_INFO "gm12u320: USB send successful: len=%d\n", len);
 
 	/* Read value */
+	printk(KERN_INFO "gm12u320: Reading value from endpoint %d\n", MISC_RCV_EPT);
 	ret = usb_bulk_msg(gm12u320->udev,
 			   usb_rcvbulkpipe(gm12u320->udev, MISC_RCV_EPT),
 			   buf, MISC_VALUE_SIZE, &len, DATA_TIMEOUT);
 	if (ret || len != MISC_VALUE_SIZE) {
+		printk(KERN_ERR "gm12u320: USB read value error: ret=%d, len=%d, expected=%d\n", ret, len, MISC_VALUE_SIZE);
 		dev_err(&gm12u320->udev->dev, "Misc. value error %d\n", ret);
 		ret = -EIO;
 		goto leave;
 	}
 	val = buf[0];
+	printk(KERN_INFO "gm12u320: Read value successful: len=%d, val=0x%02x\n", len, val);
 
 	/* Read status */
+	printk(KERN_INFO "gm12u320: Reading status from endpoint %d\n", MISC_RCV_EPT);
 	ret = usb_bulk_msg(gm12u320->udev,
 			   usb_rcvbulkpipe(gm12u320->udev, MISC_RCV_EPT),
 			   buf, READ_STATUS_SIZE, &len, CMD_TIMEOUT);
 	if (ret || len != READ_STATUS_SIZE) {
+		printk(KERN_ERR "gm12u320: USB read status error: ret=%d, len=%d, expected=%d\n", ret, len, READ_STATUS_SIZE);
 		dev_err(&gm12u320->udev->dev, "Misc. status error %d\n", ret);
 		ret = -EIO;
 		goto leave;
 	}
+	printk(KERN_INFO "gm12u320: Read status successful: len=%d\n", len);
 
 	ret = val;
+	printk(KERN_INFO "gm12u320: misc_request completed successfully, returning 0x%02x\n", val);
 leave:
 	kfree(buf);
 	return ret;
