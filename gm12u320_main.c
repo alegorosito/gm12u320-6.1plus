@@ -18,6 +18,7 @@
 #include <linux/fb.h>
 #include <linux/vt_kern.h>
 #include <linux/fs.h>
+#include <linux/jiffies.h>
 #include "gm12u320_drv.h"
 
 /* Function prototypes */
@@ -280,22 +281,31 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 	struct file *file;
 	loff_t pos = 0;
 	int bytes_read = 0;
+	static int last_read_time = 0;
+	int current_time = jiffies;
 	
 	/* Try to open the shared image file */
 	file = filp_open("/tmp/gm12u320_image.rgb", O_RDONLY, 0);
 	if (!IS_ERR(file)) {
-		printk(KERN_DEBUG "gm12u320: Reading image from /tmp/gm12u320_image.rgb\n");
-		
-		/* Read image data from file */
-		bytes_read = kernel_read(file, dest_buffer, expected_size, &pos);
-		filp_close(file, NULL);
-		
-		if (bytes_read == expected_size) {
-			printk(KERN_DEBUG "gm12u320: Successfully read %d bytes from image file\n", bytes_read);
-			return bytes_read;
+		/* Check if we should read the file (every 100ms or if it's been a while) */
+		if (current_time - last_read_time > HZ / 10) { /* 100ms */
+			printk(KERN_DEBUG "gm12u320: Reading image from /tmp/gm12u320_image.rgb\n");
+			
+			/* Read image data from file */
+			bytes_read = kernel_read(file, dest_buffer, expected_size, &pos);
+			last_read_time = current_time;
+			
+			if (bytes_read == expected_size) {
+				printk(KERN_DEBUG "gm12u320: Successfully read %d bytes from image file\n", bytes_read);
+				filp_close(file, NULL);
+				return bytes_read;
+			} else {
+				printk(KERN_DEBUG "gm12u320: Image file read failed, bytes_read=%d, expected=%d\n", bytes_read, expected_size);
+			}
 		} else {
-			printk(KERN_DEBUG "gm12u320: Image file read failed, bytes_read=%d, expected=%d\n", bytes_read, expected_size);
+			printk(KERN_DEBUG "gm12u320: Skipping file read (too soon)\n");
 		}
+		filp_close(file, NULL);
 	} else {
 		printk(KERN_DEBUG "gm12u320: No image file found, using test pattern\n");
 	}
