@@ -271,13 +271,36 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
-	/* DISABLED: No longer capture main screen to prevent GUI blocking */
-	/* Instead, generate a simple test pattern */
-	
 	/* Target resolution for projector */
 	int target_width = GM12U320_USER_WIDTH;
 	int target_height = GM12U320_HEIGHT;
+	int expected_size = target_width * target_height * 3;
 	
+	/* Try to read image data from shared file first */
+	struct file *file;
+	loff_t pos = 0;
+	int bytes_read = 0;
+	
+	/* Try to open the shared image file */
+	file = filp_open("/tmp/gm12u320_image.rgb", O_RDONLY, 0);
+	if (!IS_ERR(file)) {
+		printk(KERN_DEBUG "gm12u320: Reading image from /tmp/gm12u320_image.rgb\n");
+		
+		/* Read image data from file */
+		bytes_read = kernel_read(file, dest_buffer, expected_size, &pos);
+		filp_close(file, NULL);
+		
+		if (bytes_read == expected_size) {
+			printk(KERN_DEBUG "gm12u320: Successfully read %d bytes from image file\n", bytes_read);
+			return bytes_read;
+		} else {
+			printk(KERN_DEBUG "gm12u320: Image file read failed, bytes_read=%d, expected=%d\n", bytes_read, expected_size);
+		}
+	} else {
+		printk(KERN_DEBUG "gm12u320: No image file found, using test pattern\n");
+	}
+	
+	/* Fallback to test pattern if no image file or read failed */
 	printk(KERN_DEBUG "gm12u320: Generating test pattern: %dx%d\n", target_width, target_height);
 	
 	/* Generate a simple test pattern */

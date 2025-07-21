@@ -71,6 +71,19 @@ def image_to_rgb_array(image):
         print(f"❌ Error converting image to RGB: {e}")
         return None
 
+def write_image_to_file(rgb_bytes, filename="/tmp/gm12u320_image.rgb"):
+    """Write RGB bytes to shared file for driver to read"""
+    try:
+        with open(filename, 'wb') as f:
+            f.write(rgb_bytes)
+            f.flush()
+            os.fsync(f.fileno())  # Ensure data is written to disk
+        print(f"✅ Image written to {filename}")
+        return True
+    except Exception as e:
+        print(f"❌ Error writing image to file: {e}")
+        return False
+
 def check_projector_status():
     """Check projector device status"""
     print("🎥 GM12U320 Projector Status Checker")
@@ -165,23 +178,29 @@ def main():
         print("❌ Failed to create image data")
         return 1
     
-    print("\n💡 IMPORTANTE:")
-    print("   El driver GM12U320 maneja la comunicación USB internamente")
-    print("   El proyector debería estar mostrando un patrón de prueba del driver")
-    print("   Los scripts externos no pueden escribir directamente al dispositivo DRM")
-    print("   El driver ya está funcionando correctamente")
+    # Write image to shared file for driver to read
+    if not write_image_to_file(rgb_bytes):
+        print("❌ Failed to write image to shared file")
+        return 1
     
-    print("\n🎯 Estado actual:")
-    print("   ✅ Driver cargado correctamente")
-    print("   ✅ Dispositivo /dev/dri/card2 disponible")
-    print("   ✅ Proyector mostrando patrón de prueba")
-    print("   ✅ Comunicación USB funcionando")
+    print("\n🎯 Image sent to projector!")
+    print("   The driver will read the image from /tmp/gm12u320_image.rgb")
+    print("   The projector should now display your image")
+    print("   Press Ctrl+C to stop")
     
-    print("\n📝 Para mostrar imágenes personalizadas:")
-    print("   Se necesita modificar el driver para aceptar datos externos")
-    print("   O usar herramientas como ffmpeg con el driver")
-    
-    return 0
+    try:
+        while True:
+            # Keep the script running to maintain the image file
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Stopping image display")
+        # Remove the image file to revert to test pattern
+        try:
+            os.remove("/tmp/gm12u320_image.rgb")
+            print("✅ Image file removed, projector will show test pattern")
+        except:
+            pass
+        return 0
 
 if __name__ == "__main__":
     sys.exit(main()) 
