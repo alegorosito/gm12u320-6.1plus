@@ -271,14 +271,28 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
-	/* DISABLED: No longer capture main screen to prevent GUI blocking */
-	/* Instead, generate a simple test pattern */
-	
 	/* Target resolution for projector */
 	int target_width = GM12U320_USER_WIDTH;
 	int target_height = GM12U320_HEIGHT;
 	
-	printk(KERN_DEBUG "gm12u320: Generating test pattern: %dx%d\n", target_width, target_height);
+	printk(KERN_DEBUG "gm12u320: Capturing main screen: %dx%d\n", target_width, target_height);
+	
+	/* Try to capture from /dev/fb0 first */
+	struct file *fb_file = filp_open("/dev/fb0", O_RDONLY, 0);
+	if (!IS_ERR(fb_file)) {
+		/* Read from framebuffer */
+		loff_t pos = 0;
+		ssize_t bytes_read = kernel_read(fb_file, dest_buffer, max_size, &pos);
+		filp_close(fb_file, NULL);
+		
+		if (bytes_read > 0) {
+			printk(KERN_DEBUG "gm12u320: Captured %ld bytes from /dev/fb0\n", bytes_read);
+			return bytes_read;
+		}
+	}
+	
+	/* Fallback to test pattern if capture fails */
+	printk(KERN_DEBUG "gm12u320: Fallback to test pattern\n");
 	
 	/* Generate a simple test pattern */
 	int i, j;
