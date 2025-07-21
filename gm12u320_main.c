@@ -271,13 +271,16 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
+	/* DISABLED: No longer capture main screen to prevent GUI blocking */
+	/* Instead, generate a simple test pattern */
+	
 	/* Target resolution for projector */
 	int target_width = GM12U320_USER_WIDTH;
 	int target_height = GM12U320_HEIGHT;
 	
-	printk(KERN_DEBUG "gm12u320: Generating enhanced test pattern: %dx%d\n", target_width, target_height);
+	printk(KERN_DEBUG "gm12u320: Generating test pattern: %dx%d\n", target_width, target_height);
 	
-	/* Generate an enhanced test pattern that looks more like a real screen */
+	/* Generate a simple test pattern */
 	int i, j;
 	static int frame_count = 0;
 	frame_count++;
@@ -287,31 +290,10 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 			int dest_offset = i * target_width * 3 + j * 3;
 			
 			if (dest_offset + 2 < max_size) {
-				/* Create a more realistic test pattern */
-				int r, g, b;
-				
-				/* Create a gradient pattern that looks like a desktop */
-				if (i < target_height / 3) {
-					/* Top third: blue gradient */
-					r = 0;
-					g = (i * 255) / (target_height / 3);
-					b = 255;
-				} else if (i < 2 * target_height / 3) {
-					/* Middle third: green gradient */
-					r = 0;
-					g = 255;
-					b = ((2 * target_height / 3 - i) * 255) / (target_height / 3);
-				} else {
-					/* Bottom third: red gradient */
-					r = 255;
-					g = ((target_height - i) * 255) / (target_height / 3);
-					b = 0;
-				}
-				
-				/* Add some animation */
-				r = (r + frame_count) % 256;
-				g = (g + frame_count) % 256;
-				b = (b + frame_count) % 256;
+				/* Create an animated test pattern */
+				int r = (j + frame_count) % 256;
+				int g = (i + frame_count) % 256;
+				int b = (frame_count * 10) % 256;
 				
 				dest_buffer[dest_offset] = r;     /* Red */
 				dest_buffer[dest_offset + 1] = g; /* Green */
