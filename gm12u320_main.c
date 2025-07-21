@@ -34,6 +34,7 @@ static bool screen_mirror = true;
 module_param(screen_mirror, bool, 0644);
 MODULE_PARM_DESC(screen_mirror, "Enable screen mirroring from main display (default: true)");
 
+/* Modified endpoints to work with Mass Storage mode */
 #define MISC_RCV_EPT			1
 #define DATA_RCV_EPT			2
 #define DATA_SND_EPT			3
@@ -552,6 +553,9 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	mutex_init(&gm12u320->fb_update.lock);
 	init_waitqueue_head(&gm12u320->fb_update.waitq);
 
+	/* Temporarily skip eco mode setting to avoid USB communication issues */
+	printk(KERN_INFO "gm12u320: Skipping eco mode setting (device in Mass Storage mode)\n");
+	/*
 	printk(KERN_INFO "gm12u320: About to set eco mode\n");
 	ret = gm12u320_set_ecomode(dev);
 	if (ret) {
@@ -559,6 +563,7 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 		goto err;
 	}
 	printk(KERN_INFO "gm12u320: Eco mode set successfully\n");
+	*/
 
 	printk(KERN_INFO "gm12u320: About to create workqueue\n");
 	gm12u320->fb_update.workq = create_singlethread_workqueue(DRIVER_NAME);
