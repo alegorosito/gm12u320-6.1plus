@@ -386,6 +386,10 @@ int gm12u320_fbdev_init(struct drm_device *dev)
 skip_fb_helper:
 	/* Continue without fb helper, but still try to create framebuffer device */
 	printk(KERN_INFO "gm12u320: Skipping fb helper, attempting direct framebuffer creation\n");
+	
+	/* Don't fail the driver load, just continue without fb helper */
+	printk(KERN_INFO "gm12u320: Driver will work without framebuffer helper\n");
+	return 0;
 
 err_free:
 	kfree(fbdev);
