@@ -41,17 +41,17 @@ def create_simple_test_image():
         # Create a simple pattern: red, green, blue stripes
         stripe_height = PROJECTOR_HEIGHT // 3
         
-        # Red stripe (top)
+        # Red stripe (top) - will become blue in BGR
         image_array[0:stripe_height, :, 0] = 255  # Red channel
         image_array[0:stripe_height, :, 1] = 0    # Green channel
         image_array[0:stripe_height, :, 2] = 0    # Blue channel
         
-        # Green stripe (middle)
+        # Green stripe (middle) - stays green in BGR
         image_array[stripe_height:2*stripe_height, :, 0] = 0    # Red channel
         image_array[stripe_height:2*stripe_height, :, 1] = 255  # Green channel
         image_array[stripe_height:2*stripe_height, :, 2] = 0    # Blue channel
         
-        # Blue stripe (bottom)
+        # Blue stripe (bottom) - will become red in BGR
         image_array[2*stripe_height:, :, 0] = 0    # Red channel
         image_array[2*stripe_height:, :, 1] = 0    # Green channel
         image_array[2*stripe_height:, :, 2] = 255  # Blue channel
@@ -66,7 +66,7 @@ def create_simple_test_image():
         # Convert numpy array to PIL Image
         image = Image.fromarray(image_array, 'RGB')
         
-        print("✅ Simple test image created with RGB stripes")
+        print("✅ Simple test image created with RGB stripes (will be converted to BGR)")
         return image
     except Exception as e:
         print(f"❌ Error creating simple test image: {e}")
@@ -150,7 +150,7 @@ def resize_image(image, target_width, target_height):
         return None
 
 def image_to_rgb_array(image):
-    """Convert PIL image to RGB byte array"""
+    """Convert PIL image to BGR byte array (for GM12U320 compatibility)"""
     try:
         # Convert to RGB if needed
         if image.mode != 'RGB':
@@ -159,13 +159,20 @@ def image_to_rgb_array(image):
         # Convert to numpy array
         array = np.array(image, dtype=np.uint8)
         
-        # Flatten to byte array
-        rgb_bytes = array.tobytes()
+        # Swap R and B channels to convert RGB to BGR
+        # Original: [R, G, B] -> New: [B, G, R]
+        bgr_array = array.copy()
+        bgr_array[:, :, 0] = array[:, :, 2]  # B = R
+        bgr_array[:, :, 2] = array[:, :, 0]  # R = B
+        # G stays the same
         
-        print(f"✅ Image converted to RGB bytes: {len(rgb_bytes)} bytes")
-        return rgb_bytes
+        # Flatten to byte array
+        bgr_bytes = bgr_array.tobytes()
+        
+        print(f"✅ Image converted to BGR bytes: {len(bgr_bytes)} bytes")
+        return bgr_bytes
     except Exception as e:
-        print(f"❌ Error converting image to RGB: {e}")
+        print(f"❌ Error converting image to BGR: {e}")
         return None
 
 def write_image_to_file(rgb_bytes, filename="/tmp/gm12u320_image.rgb"):
