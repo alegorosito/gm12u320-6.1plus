@@ -518,9 +518,13 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 
 	printk(KERN_INFO "gm12u320: driver_load started\n");
 	DRM_DEBUG("\n");
+	printk(KERN_INFO "gm12u320: About to allocate device structure\n");
 	gm12u320 = kzalloc(sizeof(struct gm12u320_device), GFP_KERNEL);
-	if (!gm12u320)
+	if (!gm12u320) {
+		printk(KERN_ERR "gm12u320: Failed to allocate device structure\n");
 		return -ENOMEM;
+	}
+	printk(KERN_INFO "gm12u320: Device structure allocated successfully\n");
 
 	gm12u320->udev = udev;
 	gm12u320->ddev = dev;
@@ -533,19 +537,30 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	mutex_init(&gm12u320->fb_update.lock);
 	init_waitqueue_head(&gm12u320->fb_update.waitq);
 
+	printk(KERN_INFO "gm12u320: About to set eco mode\n");
 	ret = gm12u320_set_ecomode(dev);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "gm12u320: Failed to set eco mode: %d\n", ret);
 		goto err;
+	}
+	printk(KERN_INFO "gm12u320: Eco mode set successfully\n");
 
+	printk(KERN_INFO "gm12u320: About to create workqueue\n");
 	gm12u320->fb_update.workq = create_singlethread_workqueue(DRIVER_NAME);
 	if (!gm12u320->fb_update.workq) {
+		printk(KERN_ERR "gm12u320: Failed to create workqueue\n");
 		ret = -ENOMEM;
 		goto err;
 	}
+	printk(KERN_INFO "gm12u320: Workqueue created successfully\n");
 
+	printk(KERN_INFO "gm12u320: About to allocate USB resources\n");
 	ret = gm12u320_usb_alloc(gm12u320);
-	if (ret)
+	if (ret) {
+		printk(KERN_ERR "gm12u320: Failed to allocate USB resources: %d\n", ret);
 		goto err_wq;
+	}
+	printk(KERN_INFO "gm12u320: USB resources allocated successfully\n");
 
 	DRM_DEBUG("\n");
 	printk(KERN_INFO "gm12u320: About to call gm12u320_modeset_init\n");
