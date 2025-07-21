@@ -6,7 +6,7 @@ Downloads an image from URL and displays it on the projector
 
 import requests
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import io
 import time
 import sys
@@ -30,6 +30,63 @@ def download_image(url):
         return image
     except Exception as e:
         print(f"❌ Error downloading image: {e}")
+        return None
+
+def create_text_image(text="GM12U320 Projector", subtitle="Image Display Test"):
+    """Create a text-based image that's easy to read"""
+    try:
+        # Create a new image with white background
+        image = Image.new('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), (255, 255, 255))
+        draw = ImageDraw.Draw(image)
+        
+        # Try to use a system font, fallback to default
+        try:
+            # Try different font sizes and names
+            font_sizes = [48, 36, 24]
+            font_names = ['Arial', 'DejaVuSans', 'LiberationSans', 'FreeSans']
+            
+            font = None
+            for font_name in font_names:
+                for font_size in font_sizes:
+                    try:
+                        font = ImageFont.truetype(font_name, font_size)
+                        break
+                    except:
+                        continue
+                if font:
+                    break
+            
+            if not font:
+                font = ImageFont.load_default()
+        except:
+            font = ImageFont.load_default()
+        
+        # Calculate text positions
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        x = (PROJECTOR_WIDTH - text_width) // 2
+        y = (PROJECTOR_HEIGHT - text_height) // 2 - 50
+        
+        # Draw main text
+        draw.text((x, y), text, fill=(0, 0, 0), font=font)
+        
+        # Draw subtitle
+        bbox_sub = draw.textbbox((0, 0), subtitle, font=font)
+        sub_width = bbox_sub[2] - bbox_sub[0]
+        x_sub = (PROJECTOR_WIDTH - sub_width) // 2
+        y_sub = y + text_height + 20
+        
+        draw.text((x_sub, y_sub), subtitle, fill=(100, 100, 100), font=font)
+        
+        # Add a border
+        draw.rectangle([10, 10, PROJECTOR_WIDTH-10, PROJECTOR_HEIGHT-10], outline=(0, 0, 255), width=3)
+        
+        print(f"✅ Text image created: {text}")
+        return image
+    except Exception as e:
+        print(f"❌ Error creating text image: {e}")
         return None
 
 def resize_image(image, target_width, target_height):
@@ -154,10 +211,19 @@ def main():
         return 1
     
     # Get URL from command line or use default
-    url = sys.argv[1] if len(sys.argv) > 1 else "https://picsum.photos/id/1/200/300"
+    if len(sys.argv) > 1:
+        url = sys.argv[1]
+        print(f"🎯 Using custom image URL: {url}")
+        
+        # Download and process image
+        image = download_image(url)
+        if image is None:
+            print("⚠️  Using text image instead")
+            image = create_text_image("Custom Image Failed", "Using Fallback")
+    else:
+        print("🎯 Creating text image")
+        image = create_text_image("GM12U320 Projector", "Image Display Working!")
     
-    # Download and process image
-    image = download_image(url)
     if image is None:
         print("⚠️  Using test pattern instead")
         rgb_bytes = create_test_pattern()
