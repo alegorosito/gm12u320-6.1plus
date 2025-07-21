@@ -36,7 +36,7 @@ static const struct file_operations gm12u320_driver_fops = {
 };
 
 static struct drm_driver driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM,
+	.driver_features = DRIVER_GEM,
 	.load = gm12u320_driver_load,
 	.unload = gm12u320_driver_unload,
 

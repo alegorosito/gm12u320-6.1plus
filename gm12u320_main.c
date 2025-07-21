@@ -255,27 +255,29 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
-	/* Use virtual display instead of capturing /dev/fb0 */
-	/* This prevents blocking the main GUI */
+	/* DISABLED: No longer capture main screen to prevent GUI blocking */
+	/* Instead, generate a simple test pattern */
 	
 	/* Target resolution for projector */
 	int target_width = GM12U320_USER_WIDTH;
 	int target_height = GM12U320_HEIGHT;
 	
-	printk(KERN_DEBUG "gm12u320: Using virtual display: %dx%d\n", target_width, target_height);
+	printk(KERN_DEBUG "gm12u320: Generating test pattern: %dx%d\n", target_width, target_height);
 	
-	/* Generate a test pattern or use a static image */
-	/* For now, create a simple gradient pattern */
+	/* Generate a simple test pattern */
 	int i, j;
+	static int frame_count = 0;
+	frame_count++;
+	
 	for (i = 0; i < target_height; i++) {
 		for (j = 0; j < target_width; j++) {
 			int dest_offset = i * target_width * 3 + j * 3;
 			
 			if (dest_offset + 2 < max_size) {
-				/* Create a gradient pattern */
-				int r = (j * 255) / target_width;
-				int g = (i * 255) / target_height;
-				int b = 128;
+				/* Create an animated test pattern */
+				int r = (j + frame_count) % 256;
+				int g = (i + frame_count) % 256;
+				int b = (frame_count * 10) % 256;
 				
 				dest_buffer[dest_offset] = r;     /* Red */
 				dest_buffer[dest_offset + 1] = g; /* Green */
@@ -564,8 +566,9 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_fb;
 
-	/* Start framebuffer update after a delay to ensure device is ready */
-	mod_timer(&gm12u320->fb_update.timer, jiffies + msecs_to_jiffies(1000));
+	/* DISABLED: No longer start framebuffer update to prevent GUI blocking */
+	/* The driver will only respond to manual commands now */
+	printk(KERN_INFO "gm12u320: Framebuffer update disabled to prevent GUI blocking\n");
 
 	return 0;
 

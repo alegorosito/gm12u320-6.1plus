@@ -27,7 +27,7 @@
 static enum drm_connector_status
 gm12u320_detect(struct drm_connector *connector, bool force)
 {
-	return connector_status_connected;
+	return connector_status_disconnected;
 }
 
 static int gm12u320_connector_set_property(struct drm_connector *connector,

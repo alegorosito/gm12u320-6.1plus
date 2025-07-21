@@ -77,9 +77,7 @@ send_video() {
         -r "$FPS" \
         -y \
         - | \
-    while true; do
-        dd of="$FBDEV" bs=1M 2>/dev/null || break
-    done &
+    dd of="$FBDEV" bs=1M 2>/dev/null &
     
     FFMPEG_PID=$!
     echo "Video iniciado con PID: $FFMPEG_PID"
