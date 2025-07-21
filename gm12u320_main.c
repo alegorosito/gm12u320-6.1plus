@@ -129,7 +129,7 @@ static int gm12u320_usb_alloc(struct gm12u320_device *gm12u320)
 	const char *hdr;
 
 	printk(KERN_INFO "gm12u320: Allocating USB buffers\n");
-	
+
 	gm12u320->cmd_buf = kmalloc(CMD_SIZE, GFP_KERNEL);
 	if (!gm12u320->cmd_buf) {
 		printk(KERN_ERR "gm12u320: Failed to allocate cmd_buf\n");
