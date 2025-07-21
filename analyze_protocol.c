@@ -9,7 +9,7 @@
 #define TIMEOUT    1000
 
 void print_endpoint_info(libusb_device *device) {
-    libusb_config_descriptor *config;
+    struct libusb_config_descriptor *config;
     int result = libusb_get_config_descriptor(device, 0, &config);
     if (result < 0) {
         printf("Error obteniendo descriptor de configuración\n");
