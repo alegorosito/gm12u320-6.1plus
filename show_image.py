@@ -132,25 +132,40 @@ def create_text_image(text="GM12U320 Projector", subtitle="Image Display Test"):
 def resize_image(image, target_width, target_height):
     """Resize image to projector resolution"""
     try:
+        # Calculate aspect ratio
+        img_width, img_height = image.size
+        aspect_ratio = img_width / img_height
+        target_aspect_ratio = target_width / target_height
+        
+        if aspect_ratio > target_aspect_ratio:
+            # Image is wider than target, fit to width
+            new_width = target_width
+            new_height = int(target_width / aspect_ratio)
+        else:
+            # Image is taller than target, fit to height
+            new_height = target_height
+            new_width = int(target_height * aspect_ratio)
+        
         # Resize image maintaining aspect ratio
-        image.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
+        resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
         # Create new image with target size and black background
         new_image = Image.new('RGB', (target_width, target_height), (0, 0, 0))
         
         # Center the resized image
-        x = (target_width - image.size[0]) // 2
-        y = (target_height - image.size[1]) // 2
-        new_image.paste(image, (x, y))
+        x = (target_width - new_width) // 2
+        y = (target_height - new_height) // 2
+        new_image.paste(resized_image, (x, y))
         
-        print(f"✅ Image resized to: {new_image.size[0]}x{new_image.size[1]} pixels")
+        print(f"✅ Image resized from {img_width}x{img_height} to {target_width}x{target_height}")
+        print(f"   Resized to {new_width}x{new_height} and centered")
         return new_image
     except Exception as e:
         print(f"❌ Error resizing image: {e}")
         return None
 
 def image_to_rgb_array(image):
-    """Convert PIL image to BGR byte array (for GM12U320 compatibility)"""
+    """Convert PIL image to RGB byte array for GM12U320 projector"""
     try:
         # Convert to RGB if needed
         if image.mode != 'RGB':
@@ -159,20 +174,21 @@ def image_to_rgb_array(image):
         # Convert to numpy array
         array = np.array(image, dtype=np.uint8)
         
-        # Swap R and B channels to convert RGB to BGR
-        # Original: [R, G, B] -> New: [B, G, R]
-        bgr_array = array.copy()
-        bgr_array[:, :, 0] = array[:, :, 2]  # B = R
-        bgr_array[:, :, 2] = array[:, :, 0]  # R = B
-        # G stays the same
+        # Ensure the array is in the correct shape and format
+        if len(array.shape) != 3 or array.shape[2] != 3:
+            print(f"❌ Invalid image format: shape={array.shape}")
+            return None
         
-        # Flatten to byte array
-        bgr_bytes = bgr_array.tobytes()
+        # The driver expects RGB format directly (no BGR conversion needed)
+        # Just flatten the array to bytes
+        rgb_bytes = array.tobytes()
         
-        print(f"✅ Image converted to BGR bytes: {len(bgr_bytes)} bytes")
-        return bgr_bytes
+        print(f"✅ Image converted to RGB bytes: {len(rgb_bytes)} bytes")
+        print(f"   Image shape: {array.shape}")
+        print(f"   Expected bytes: {array.shape[0] * array.shape[1] * 3}")
+        return rgb_bytes
     except Exception as e:
-        print(f"❌ Error converting image to BGR: {e}")
+        print(f"❌ Error converting image to RGB: {e}")
         return None
 
 def write_image_to_file(rgb_bytes, filename="/tmp/gm12u320_image.rgb"):
