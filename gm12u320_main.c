@@ -566,9 +566,8 @@ int gm12u320_driver_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_fb;
 
-	/* DISABLED: No longer start framebuffer update to prevent GUI blocking */
-	/* The driver will only respond to manual commands now */
-	printk(KERN_INFO "gm12u320: Framebuffer update disabled to prevent GUI blocking\n");
+	/* Start framebuffer update after a delay to ensure device is ready */
+	mod_timer(&gm12u320->fb_update.timer, jiffies + msecs_to_jiffies(1000));
 
 	return 0;
 
