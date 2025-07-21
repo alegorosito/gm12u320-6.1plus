@@ -47,13 +47,13 @@ int main() {
     }
 
     fbp0 = mmap(0, screensize0, PROT_READ, MAP_SHARED, fb0_fd, 0);
-    if ((int)fbp0 == -1) {
+    if ((int)fbp0 == MAP_FAILED) {
         perror("Error mapeando fb0");
         exit(1);
     }
 
     fbp1 = mmap(0, screensize1, PROT_WRITE, MAP_SHARED, fb1_fd, 0);
-    if ((int)fbp1 == -1) {
+    if ((int)fbp1 == MAP_FAILED) {
         perror("Error mapeando fb1");
         exit(1);
     }
