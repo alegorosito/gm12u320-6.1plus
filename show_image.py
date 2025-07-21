@@ -17,6 +17,17 @@ PROJECTOR_WIDTH = 800
 PROJECTOR_HEIGHT = 600
 PROJECTOR_BYTES_PER_PIXEL = 3  # RGB
 
+def load_image_from_path(image_path):
+    """Load image from local file path"""
+    try:
+        print(f"📂 Loading image from: {image_path}")
+        image = Image.open(image_path)
+        print(f"✅ Image loaded: {image.size[0]}x{image.size[1]} pixels")
+        return image
+    except Exception as e:
+        print(f"❌ Error loading image: {e}")
+        return None
+
 def download_image(url):
     """Download image from URL"""
     try:
@@ -273,13 +284,22 @@ def main():
     if not check_projector_status():
         return 1
     
-    # Get URL from command line or use default
+    # Get image source from command line or use default
     if len(sys.argv) > 1:
-        url = sys.argv[1]
-        print(f"🎯 Using custom image URL: {url}")
+        image_source = sys.argv[1]
         
-        # Download and process image
-        image = download_image(url)
+        # Check if it's a local file or URL
+        if os.path.exists(image_source):
+            print(f"🎯 Using local image file: {image_source}")
+            image = load_image_from_path(image_source)
+        elif image_source.startswith(('http://', 'https://')):
+            print(f"🎯 Using custom image URL: {image_source}")
+            image = download_image(image_source)
+        else:
+            print(f"❌ Invalid image source: {image_source}")
+            print("   Use a local file path or URL starting with http:// or https://")
+            image = None
+            
         if image is None:
             print("⚠️  Using simple test image instead")
             image = create_simple_test_image()
