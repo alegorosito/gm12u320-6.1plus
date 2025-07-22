@@ -15,7 +15,9 @@ import os
 # Projector settings
 PROJECTOR_WIDTH = 800
 PROJECTOR_HEIGHT = 600
-PROJECTOR_BYTES_PER_PIXEL = 3  # RGB
+expected_stride = 2560
+swap_bgr = True
+resize_mode = "Exact-fit"
 
 def load_image_from_path(image_path):
     """Load image from local file path"""
@@ -291,7 +293,7 @@ def create_test_pattern():
 def resize_image_exact(image, target_width, target_height):
     """Resize image to EXACTLY target size, distorting if necessary"""
     try:
-        resized_image = resize_image_exact(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+        resized_image = image.resize((PROJECTOR_WIDTH, PROJECTOR_HEIGHT), Image.Resampling.LANCZOS)
         print(f"✅ Image forcibly resized to {target_width}x{target_height}")
         return resized_image
     except Exception as e:
@@ -333,7 +335,7 @@ def main():
     resized_exact = image.resize((PROJECTOR_WIDTH, PROJECTOR_HEIGHT), Image.Resampling.LANCZOS)
 
     # Parámetros a probar
-    strides = [2560, 2816, 3072, 4096]
+    strides = [2560]
     swap_options = [False, True]
     resize_modes = [("Aspect-fit", resized_aspect), ("Exact-fit", resized_exact)]
 
@@ -341,9 +343,7 @@ def main():
         for stride in strides:
             for swap_bgr in swap_options:
                 print(f"\n🎯 Testing: stride={stride}, swap_bgr={swap_bgr}, resize_mode={resize_name}")
-                rgb_bytes = image_to_rgb_array_with_stride(
-                    resized_image, expected_stride=stride, swap_bgr=swap_bgr
-                )
+                rgb_bytes = image_to_rgb_array_with_stride(resized_image, expected_stride, swap_bgr=False)
                 if rgb_bytes is None:
                     print("❌ Failed to generate image data for this config.")
                     continue
