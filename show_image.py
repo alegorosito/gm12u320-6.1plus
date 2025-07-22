@@ -299,14 +299,14 @@ def resize_image_exact(image, target_width, target_height):
         return None
 
 def main():
-    """Main function with interactive stride test"""
-    print("🎥 GM12U320 Projector Image Display — Stride Tester")
-    print("===================================================")
+    """Main function: automatic tests"""
+    print("🎥 GM12U320 Projector Image Display — Automatic Tests")
+    print("====================================================")
 
     if not check_projector_status():
         return 1
 
-    # Get image source from command line or use default
+    # Obtener imagen
     if len(sys.argv) > 1:
         image_source = sys.argv[1]
         if os.path.exists(image_source):
@@ -325,47 +325,39 @@ def main():
     if image is None:
         print("⚠️  Using test pattern instead")
         rgb_bytes = create_test_pattern()
-    else:
-        resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+        write_image_to_file(rgb_bytes)
+        return 1
 
-    if resized_image is None:
-        print("⚠️  Using test pattern instead")
-        rgb_bytes = create_test_pattern()
+    # Escalamos la imagen original
+    resized_aspect = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+    resized_exact = image.resize((PROJECTOR_WIDTH, PROJECTOR_HEIGHT), Image.Resampling.LANCZOS)
 
+    # Parámetros a probar
     strides = [2560, 2816, 3072, 4096]
     swap_options = [False, True]
+    resize_modes = [("Aspect-fit", resized_aspect), ("Exact-fit", resized_exact)]
 
-    while True:
-        print("\n📋 Available strides to test:")
-        for idx, stride in enumerate(strides):
-            print(f"{idx+1}: stride = {stride}")
-        print("0: Exit")
+    for resize_name, resized_image in resize_modes:
+        for stride in strides:
+            for swap_bgr in swap_options:
+                print(f"\n🎯 Testing: stride={stride}, swap_bgr={swap_bgr}, resize_mode={resize_name}")
+                rgb_bytes = image_to_rgb_array_with_stride(
+                    resized_image, expected_stride=stride, swap_bgr=swap_bgr
+                )
+                if rgb_bytes is None:
+                    print("❌ Failed to generate image data for this config.")
+                    continue
 
-        try:
-            choice = int(input("➡️ Choose stride to test [1..n] or 0 to exit: "))
-            if choice == 0:
-                print("👋 Exiting.")
-                break
-            stride = strides[choice-1]
-        except (ValueError, IndexError):
-            print("❌ Invalid choice. Try again.")
-            continue
+                if not write_image_to_file(rgb_bytes):
+                    print("❌ Failed to write image.")
+                    continue
 
-        for swap_bgr in swap_options:
-            print(f"\n🎯 Testing stride={stride}, swap_bgr={swap_bgr}")
-            rgb_bytes = image_to_rgb_array_with_stride(resized_image, stride, swap_bgr=swap_bgr)
-            if rgb_bytes is None:
-                print("❌ Failed to generate image data for this config.")
-                continue
+                print(f"✅ Image written: stride={stride}, swap_bgr={swap_bgr}, mode={resize_name}")
+                print("🔎 Observe the projector output.")
+                print("⌛ Waiting 5 seconds before next test...")
+                time.sleep(5)
 
-            if not write_image_to_file(rgb_bytes):
-                print("❌ Failed to write image.")
-                continue
-
-            print(f"✅ Image written with stride={stride}, swap_bgr={swap_bgr}")
-            input("🔎 Observe the projector output. Press Enter to continue to next configuration...")
-
-    print("🛑 Test finished. Cleaning up.")
+    print("\n🛑 Tests complete. Cleaning up.")
     try:
         os.remove("/tmp/gm12u320_image.rgb")
     except:
