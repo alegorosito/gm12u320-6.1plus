@@ -296,19 +296,16 @@ def resize_image_exact(image, target_width, target_height):
         return None
 
 def main():
-    """Main function"""
-    print("🎥 GM12U320 Projector Image Display")
-    print("====================================")
-    
-    # Check projector status first
+    """Main function with interactive stride test"""
+    print("🎥 GM12U320 Projector Image Display — Stride Tester")
+    print("===================================================")
+
     if not check_projector_status():
         return 1
-    
+
     # Get image source from command line or use default
     if len(sys.argv) > 1:
         image_source = sys.argv[1]
-        
-        # Check if it's a local file or URL
         if os.path.exists(image_source):
             print(f"🎯 Using local image file: {image_source}")
             image = load_image_from_path(image_source)
@@ -317,60 +314,60 @@ def main():
             image = download_image(image_source)
         else:
             print(f"❌ Invalid image source: {image_source}")
-            print("   Use a local file path or URL starting with http:// or https://")
             image = None
-            
-        if image is None:
-            print("⚠️  Using simple test image instead")
-            image = create_simple_test_image()
     else:
         print("🎯 Creating simple test image")
         image = create_simple_test_image()
-    
+
     if image is None:
         print("⚠️  Using test pattern instead")
         rgb_bytes = create_test_pattern()
     else:
-        # Resize image
         resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
-        if resized_image is None:
-            print("⚠️  Using test pattern instead")
-            rgb_bytes = create_test_pattern()
-        else:
-            # Convert to RGB bytes
-            expected_stride = 2560  
-            rgb_bytes = image_to_rgb_array_with_stride(resized_image, expected_stride)
-            if rgb_bytes is None:
-                print("⚠️  Using test pattern instead")
-                rgb_bytes = create_test_pattern()
-    
-    if rgb_bytes is None:
-        print("❌ Failed to create image data")
-        return 1
-    
-    # Write image to shared file for driver to read
-    if not write_image_to_file(rgb_bytes):
-        print("❌ Failed to write image to shared file")
-        return 1
-    
-    print("\n🎯 Image sent to projector!")
-    print("   The driver will read the image from /tmp/gm12u320_image.rgb")
-    print("   The projector should now display your image")
-    print("   Press Ctrl+C to stop")
-    
-    try:
-        while True:
-            # Keep the script running to maintain the image file
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n🛑 Stopping image display")
-        # Remove the image file to revert to test pattern
+
+    if resized_image is None:
+        print("⚠️  Using test pattern instead")
+        rgb_bytes = create_test_pattern()
+
+    strides = [2560, 2816, 3072, 4096]
+    swap_options = [False, True]
+
+    while True:
+        print("\n📋 Available strides to test:")
+        for idx, stride in enumerate(strides):
+            print(f"{idx+1}: stride = {stride}")
+        print("0: Exit")
+
         try:
-            os.remove("/tmp/gm12u320_image.rgb")
-            print("✅ Image file removed, projector will show test pattern")
-        except:
-            pass
-        return 0
+            choice = int(input("➡️ Choose stride to test [1..n] or 0 to exit: "))
+            if choice == 0:
+                print("👋 Exiting.")
+                break
+            stride = strides[choice-1]
+        except (ValueError, IndexError):
+            print("❌ Invalid choice. Try again.")
+            continue
+
+        for swap_bgr in swap_options:
+            print(f"\n🎯 Testing stride={stride}, swap_bgr={swap_bgr}")
+            rgb_bytes = image_to_rgb_array_with_stride(resized_image, stride, swap_bgr=swap_bgr)
+            if rgb_bytes is None:
+                print("❌ Failed to generate image data for this config.")
+                continue
+
+            if not write_image_to_file(rgb_bytes):
+                print("❌ Failed to write image.")
+                continue
+
+            print(f"✅ Image written with stride={stride}, swap_bgr={swap_bgr}")
+            input("🔎 Observe the projector output. Press Enter to continue to next configuration...")
+
+    print("🛑 Test finished. Cleaning up.")
+    try:
+        os.remove("/tmp/gm12u320_image.rgb")
+    except:
+        pass
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main()) 
