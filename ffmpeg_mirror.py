@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-GM12U320 Simple Live Screen Mirror
-Uses basic Python libraries to capture screen and update projector
+GM12U320 FFmpeg Screen Mirror
+Uses ffmpeg to capture screen and send to projector
 """
 
 import numpy as np
@@ -21,13 +21,14 @@ PADDING_BYTES_PER_LINE = STRIDE_BYTES_PER_LINE - DATA_BYTES_PER_LINE  # 162 byte
 TOTAL_FILE_SIZE = STRIDE_BYTES_PER_LINE * PROJECTOR_HEIGHT  # 1,537,200 bytes
 
 # Capture settings
-CAPTURE_INTERVAL = 0.2  # 200ms (slower but more compatible)
+CAPTURE_INTERVAL = 0.2  # 200ms
 
-class SimpleMirror:
+class FFmpegMirror:
     def __init__(self):
         self.running = False
         self.frame_count = 0
         self.last_capture_time = 0
+        self.ffmpeg_process = None
         
     def check_dependencies(self):
         """Check if required dependencies are available"""
@@ -36,76 +37,55 @@ class SimpleMirror:
             print("Please make sure the GM12U320 driver is loaded")
             return False
             
-        # Check if we can capture screen
+        # Check if ffmpeg is available
         try:
-            # Try to use importlib to check if mss is available
-            import importlib.util
-            if importlib.util.find_spec("mss") is not None:
-                print("✅ mss library available - using fast capture")
-                return "mss"
+            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                print("✅ ffmpeg available")
+                return True
             else:
-                print("⚠️  mss not available - using alternative method")
-                return "alternative"
-        except:
-            print("⚠️  mss not available - using alternative method")
-            return "alternative"
+                print("❌ ffmpeg not found")
+                return False
+        except FileNotFoundError:
+            print("❌ ffmpeg not installed")
+            print("Install with: sudo apt install ffmpeg")
+            return False
     
-    def capture_screen_mss(self):
-        """Capture screen using mss (fast method)"""
+    def capture_screen_ffmpeg(self):
+        """Capture screen using ffmpeg"""
         try:
-            import mss
-            with mss.mss() as sct:
-                monitor = sct.monitors[0]  # Primary monitor
-                screenshot = sct.grab(monitor)
-                img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-                return img
-        except Exception as e:
-            print(f"Error with mss capture: {e}")
-            return None
-    
-    def capture_screen_alternative(self):
-        """Capture screen using alternative method (slower but works everywhere)"""
-        try:
-            # Try to capture from framebuffer
-            return self.capture_from_framebuffer()
-        except Exception as e:
-            print(f"Error with alternative capture: {e}")
-            return None
-    
-    def capture_from_framebuffer(self):
-        """Capture screen from /dev/fb1 (projector framebuffer)"""
-        try:
-            # Check if /dev/fb1 exists
-            if not os.path.exists('/dev/fb1'):
-                print("❌ /dev/fb1 not found - projector framebuffer not available")
-                return self.create_dynamic_test_pattern()
+            # Use ffmpeg to capture screen
+            # For X11 (if DISPLAY is set)
+            if os.environ.get('DISPLAY'):
+                cmd = [
+                    'ffmpeg', '-f', 'x11grab', '-s', '800x600', '-i', ':0.0',
+                    '-vframes', '1', '-f', 'image2pipe', '-pix_fmt', 'rgb24',
+                    '-vcodec', 'rawvideo', '-'
+                ]
+            else:
+                # For framebuffer
+                cmd = [
+                    'ffmpeg', '-f', 'fbdev', '-i', '/dev/fb0',
+                    '-s', '800x600', '-vframes', '1', '-f', 'image2pipe',
+                    '-pix_fmt', 'rgb24', '-vcodec', 'rawvideo', '-'
+                ]
             
-            # Try to read from projector framebuffer
-            with open('/dev/fb1', 'rb') as fb:
-                print("📺 Reading from projector framebuffer /dev/fb1")
+            result = subprocess.run(cmd, capture_output=True, timeout=5)
+            
+            if result.returncode == 0 and len(result.stdout) == PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
+                # Convert raw data to PIL Image
+                img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), result.stdout)
+                return img
+            else:
+                print(f"FFmpeg capture failed: {result.stderr.decode()}")
+                return None
                 
-                # Read framebuffer data
-                fb.seek(0)
-                # Read data for 800x600 resolution
-                data = fb.read(PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3)
-                
-                if len(data) == PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
-                    # Convert to PIL Image
-                    img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), data)
-                    print(f"✅ Captured {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT} from framebuffer")
-                    return img
-                else:
-                    print(f"❌ Expected {PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3} bytes, got {len(data)}")
-                    
-        except PermissionError:
-            print("❌ Permission denied accessing /dev/fb1")
-            print("Try running with sudo or add user to video group")
+        except subprocess.TimeoutExpired:
+            print("FFmpeg capture timeout")
+            return None
         except Exception as e:
-            print(f"❌ Framebuffer capture failed: {e}")
-        
-        # If all else fails, return dynamic test pattern
-        print("Using dynamic test pattern as fallback")
-        return self.create_dynamic_test_pattern()
+            print(f"FFmpeg capture error: {e}")
+            return None
     
     def create_dynamic_test_pattern(self):
         """Create a dynamic test pattern that simulates screen changes"""
@@ -140,7 +120,7 @@ class SimpleMirror:
                 except:
                     font = ImageFont.load_default()
                 
-                text = f"LIVE TEST {current_time}"
+                text = f"FFMPEG TEST {current_time}"
                 draw.text((10, 10), text, fill=(255, 255, 255), font=font)
             except:
                 pass
@@ -208,15 +188,16 @@ class SimpleMirror:
             print(f"Error writing to file: {e}")
             return False
     
-    def update_projector(self, capture_method):
+    def update_projector(self):
         """Capture screen and update projector"""
         try:
-            # Capture screen
-            if capture_method == "mss":
-                screenshot = self.capture_screen_mss()
-            else:
-                screenshot = self.capture_screen_alternative()
-                
+            # Try to capture screen with ffmpeg
+            screenshot = self.capture_screen_ffmpeg()
+            
+            if screenshot is None:
+                # Fallback to test pattern
+                screenshot = self.create_dynamic_test_pattern()
+            
             if screenshot is None:
                 return False
             
@@ -241,11 +222,10 @@ class SimpleMirror:
             print(f"Error updating projector: {e}")
             return False
     
-    def mirror_loop(self, capture_method):
+    def mirror_loop(self):
         """Main mirroring loop"""
-        print("Starting simple live mirror...")
+        print("Starting FFmpeg live mirror...")
         print(f"Capture interval: {CAPTURE_INTERVAL*1000:.0f}ms")
-        print(f"Capture method: {capture_method}")
         print(f"Target resolution: {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT}")
         print("Press Ctrl+C to stop")
         
@@ -258,13 +238,13 @@ class SimpleMirror:
                 
                 # Check if it's time for next capture
                 if current_time - self.last_capture_time >= CAPTURE_INTERVAL:
-                    success = self.update_projector(capture_method)
+                    success = self.update_projector()
                     self.last_capture_time = current_time
                     
                     if success:
                         elapsed = current_time - start_time
                         fps = self.frame_count / elapsed if elapsed > 0 else 0
-                        print(f"\rFrames: {self.frame_count} | FPS: {fps:.1f} | Time: {elapsed:.1f}s | Method: {capture_method}", end="", flush=True)
+                        print(f"\rFrames: {self.frame_count} | FPS: {fps:.1f} | Time: {elapsed:.1f}s", end="", flush=True)
                     else:
                         print(f"\rFrame {self.frame_count} failed", end="", flush=True)
                 
@@ -272,27 +252,22 @@ class SimpleMirror:
                 time.sleep(0.01)
                 
         except KeyboardInterrupt:
-            print("\nStopping simple mirror...")
+            print("\nStopping FFmpeg mirror...")
         finally:
             self.running = False
     
     def start(self):
-        """Start the simple mirror"""
-        capture_method = self.check_dependencies()
-        if not capture_method:
+        """Start the FFmpeg mirror"""
+        if not self.check_dependencies():
             return False
         
-        print("GM12U320 Simple Live Mirror")
-        print("===========================")
-        print("This will show live content on the projector")
-        if capture_method == "alternative":
-            print("Using dynamic test pattern (no real screen capture)")
-        else:
-            print("Using real screen capture")
+        print("GM12U320 FFmpeg Live Mirror")
+        print("============================")
+        print("This will capture screen using FFmpeg and show on projector")
         print("Press Ctrl+C to stop")
         
         try:
-            self.mirror_loop(capture_method)
+            self.mirror_loop()
         except Exception as e:
             print(f"Error in mirror loop: {e}")
         finally:
@@ -306,7 +281,7 @@ class SimpleMirror:
         return True
 
 def main():
-    mirror = SimpleMirror()
+    mirror = FFmpegMirror()
     return 0 if mirror.start() else 1
 
 if __name__ == "__main__":
