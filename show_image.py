@@ -282,6 +282,16 @@ def create_test_pattern():
     except Exception as e:
         print(f"❌ Error creating test pattern: {e}")
         return None
+    
+def resize_image_exact(image, target_width, target_height):
+    """Resize image to EXACTLY target size, distorting if necessary"""
+    try:
+        resized_image = resize_image_exact(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+        print(f"✅ Image forcibly resized to {target_width}x{target_height}")
+        return resized_image
+    except Exception as e:
+        print(f"❌ Error resizing image: {e}")
+        return None
 
 def main():
     """Main function"""
