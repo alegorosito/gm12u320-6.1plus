@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import subprocess
+import numpy as np
 from PIL import Image
 
 # Capture settings
@@ -24,49 +25,77 @@ class ScreenCapture:
     def capture_screen(self):
         """Capture screen using multiple methods"""
         try:
-            # Method 1: Direct framebuffer read
+            # Method 1: Try to get framebuffer info first
             try:
-                with open('/dev/fb0', 'rb') as fb:
-                    fb.seek(0)
-                    data = fb.read(SCREEN_WIDTH * SCREEN_HEIGHT * 3)
+                result = subprocess.run(['fbset'], capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    print(f"Framebuffer info: {result.stdout}")
                     
-                    if len(data) >= SCREEN_WIDTH * SCREEN_HEIGHT * 3:
-                        img = Image.frombytes('RGB', (SCREEN_WIDTH, SCREEN_HEIGHT), 
-                                            data[:SCREEN_WIDTH * SCREEN_HEIGHT * 3])
-                        print(f"✅ Captured {SCREEN_WIDTH}x{SCREEN_HEIGHT} from framebuffer")
-                        return img
-                    else:
-                        print(f"❌ Insufficient framebuffer data: {len(data)} bytes")
+                    # Parse framebuffer info to get actual resolution
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'geometry' in line:
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                actual_width = int(parts[1])
+                                actual_height = int(parts[2])
+                                depth = int(parts[3])
+                                print(f"Actual framebuffer: {actual_width}x{actual_height} depth={depth}")
+                                
+                                # Try to capture with actual resolution
+                                with open('/dev/fb0', 'rb') as fb:
+                                    fb.seek(0)
+                                    data = fb.read(actual_width * actual_height * 3)
+                                    
+                                    if len(data) >= actual_width * actual_height * 3:
+                                        img = Image.frombytes('RGB', (actual_width, actual_height), 
+                                                            data[:actual_width * actual_height * 3])
+                                        print(f"✅ Captured {actual_width}x{actual_height} from framebuffer")
+                                        return img
             except Exception as e:
-                print(f"Framebuffer capture failed: {e}")
+                print(f"Framebuffer info failed: {e}")
             
-            # Method 2: Try import command (ImageMagick)
-            try:
-                result = subprocess.run(['import', '-window', 'root', '-resize', 
-                                       f'{SCREEN_WIDTH}x{SCREEN_HEIGHT}', OUTPUT_FILE], 
-                                      capture_output=True, timeout=5)
-                if result.returncode == 0 and os.path.exists(OUTPUT_FILE):
-                    img = Image.open(OUTPUT_FILE)
-                    print("✅ Captured using import command")
-                    return img
-            except Exception as e:
-                print(f"Import command failed: {e}")
+            # Method 2: Try direct framebuffer read with different resolutions
+            resolutions = [(1024, 768), (800, 600), (1920, 1080), (1280, 720)]
             
-            # Method 3: Try xwd command
-            try:
-                result = subprocess.run(['xwd', '-root', '-out', '/tmp/temp_screen.xwd'], 
-                                      capture_output=True, timeout=5)
-                if result.returncode == 0 and os.path.exists('/tmp/temp_screen.xwd'):
-                    # Convert xwd to jpg
-                    subprocess.run(['convert', '/tmp/temp_screen.xwd', OUTPUT_FILE], 
-                                 capture_output=True, timeout=5)
-                    if os.path.exists(OUTPUT_FILE):
-                        img = Image.open(OUTPUT_FILE)
-                        os.remove('/tmp/temp_screen.xwd')
-                        print("✅ Captured using xwd command")
-                        return img
-            except Exception as e:
-                print(f"Xwd command failed: {e}")
+            for width, height in resolutions:
+                try:
+                    with open('/dev/fb0', 'rb') as fb:
+                        fb.seek(0)
+                        data = fb.read(width * height * 3)
+                        
+                        if len(data) >= width * height * 3:
+                            img = Image.frombytes('RGB', (width, height), 
+                                                data[:width * height * 3])
+                            
+                            # Check if image has content (not all black)
+                            img_array = np.array(img)
+                            if np.any(img_array > 0):
+                                print(f"✅ Captured {width}x{height} with content from framebuffer")
+                                return img
+                            else:
+                                print(f"❌ {width}x{height} captured but is all black")
+                        else:
+                            print(f"❌ Insufficient data for {width}x{height}: {len(data)} bytes")
+                except Exception as e:
+                    print(f"Failed to capture {width}x{height}: {e}")
+            
+            # Method 3: Try X11 commands if DISPLAY is set
+            if os.environ.get('DISPLAY'):
+                try:
+                    result = subprocess.run(['xwd', '-root', '-out', '/tmp/temp_screen.xwd'], 
+                                          capture_output=True, timeout=5)
+                    if result.returncode == 0 and os.path.exists('/tmp/temp_screen.xwd'):
+                        # Convert xwd to jpg
+                        subprocess.run(['convert', '/tmp/temp_screen.xwd', OUTPUT_FILE], 
+                                     capture_output=True, timeout=5)
+                        if os.path.exists(OUTPUT_FILE):
+                            img = Image.open(OUTPUT_FILE)
+                            os.remove('/tmp/temp_screen.xwd')
+                            print("✅ Captured using xwd command")
+                            return img
+                except Exception as e:
+                    print(f"Xwd command failed: {e}")
             
             # Method 4: Create test pattern
             print("⚠️ Using test pattern as fallback")
