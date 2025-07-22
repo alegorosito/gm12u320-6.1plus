@@ -124,7 +124,7 @@ def run_normal(image_source, config=None):
         w,h,s,swap,mode = config
     else:
         w,h,s,swap,mode = 800,600,2560,False,"Exact-fit"
-    img = resize_image(img,w,h,mode)
+    img = create_grid_test_image(w, h)
     rgb,_ = image_to_rgb(img,s,swap)
     write_image(rgb)
     log(f"🎯 Displaying {w}x{h} stride={s} swap_bgr={swap} mode={mode}… Ctrl+C to exit")
@@ -160,6 +160,33 @@ def run_tests(image_source):
         log(f"✅ Best configuration detected: {best}")
         print(f"\n🎯 Best detected: Resolution={best[0]}x{best[1]} Stride={best[2]} Swap_BGR={best[3]} Mode={best[4]}")
         print(f"Run normally with:\n  sudo python3 show_image.py <image>")
+
+from PIL import ImageDraw, ImageFont
+
+def create_grid_test_image(w, h):
+    img = Image.new("RGB", (w,h), (0,0,0))
+    draw = ImageDraw.Draw(img)
+
+    # borde rojo
+    draw.rectangle([0,0,w-1,h-1], outline=(255,0,0), width=5)
+
+    # líneas diagonales
+    draw.line([(0,0),(w,h)], fill=(0,255,0), width=3)
+    draw.line([(w,0),(0,h)], fill=(0,255,0), width=3)
+
+    # líneas vertical/horizontal medias
+    draw.line([(w//2,0),(w//2,h)], fill=(0,0,255), width=1)
+    draw.line([(0,h//2),(w,h//2)], fill=(0,0,255), width=1)
+
+    # números en esquinas y centro
+    font = ImageFont.load_default()
+    draw.text((10,10), "TL", fill=(255,255,255), font=font)
+    draw.text((w-30,10), "TR", fill=(255,255,255), font=font)
+    draw.text((10,h-20), "BL", fill=(255,255,255), font=font)
+    draw.text((w-30,h-20), "BR", fill=(255,255,255), font=font)
+    draw.text((w//2-10,h//2-10), "C", fill=(255,255,255), font=font)
+
+    return img
 
 def main():
     if not check_projector_status(): return
