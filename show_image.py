@@ -175,39 +175,41 @@ def resize_image(image, target_width, target_height):
         print(f"❌ Error resizing image: {e}")
         return None
 
-def image_to_rgb_array(image):
+def image_to_rgb_array_with_stride(image, expected_stride=None):
     """
-    Convert PIL image to properly aligned byte array for GM12U320 projector.
-    Ensures it’s in BGR format if required.
+    Convert PIL image to RGB byte array for GM12U320 projector,
+    optionally adding padding bytes per line to meet expected stride.
     """
     try:
-        # Convert to RGB if needed
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        
         array = np.array(image, dtype=np.uint8)
 
-        # Si el proyector espera BGR, descomenta la siguiente línea:
-        array = array[:, :, ::-1]
+        if len(array.shape) != 3 or array.shape[2] != 3:
+            print(f"❌ Invalid image format: shape={array.shape}")
+            return None
 
-        # Por seguridad, asegúrate de que no hay padding en las filas.
-        # Si el driver espera que cada fila sea múltiplo de 4 bytes:
-        h, w, c = array.shape
-        row_size = w * c
-        pad = (4 - (row_size % 4)) % 4
-        
-        if pad != 0:
-            padded = np.zeros((h, w*c + pad), dtype=np.uint8)
-            for y in range(h):
-                padded[y, :row_size] = array[y].flatten()
-            print(f"✅ Image padded: {pad} bytes per row to align")
-            return padded.tobytes()
-        else:
-            print("✅ Image has correct row size, no padding needed")
+        height, width, _ = array.shape
+        line_bytes = width * 3
+
+        if expected_stride is None or expected_stride <= line_bytes:
+            # No padding necessary
+            print(f"✅ No stride adjustment needed ({line_bytes} bytes per line)")
             return array.tobytes()
-        
+
+        padding = expected_stride - line_bytes
+        print(f"ℹ️ Adding {padding} padding bytes per line (expected stride: {expected_stride})")
+
+        buffer = bytearray()
+        for y in range(height):
+            buffer += array[y, :, :].tobytes()
+            if padding > 0:
+                buffer += b'\x00' * padding
+
+        print(f"✅ Image converted with stride {expected_stride}, total bytes: {len(buffer)}")
+        return bytes(buffer)
     except Exception as e:
-        print(f"❌ Error converting image to RGB: {e}")
+        print(f"❌ Error converting image to RGB with stride: {e}")
         return None
 
 def write_image_to_file(rgb_bytes, filename="/tmp/gm12u320_image.rgb"):
@@ -336,7 +338,8 @@ def main():
             rgb_bytes = create_test_pattern()
         else:
             # Convert to RGB bytes
-            rgb_bytes = image_to_rgb_array(resized_image)
+            expected_stride = 1024  
+            rgb_bytes = image_to_rgb_array_with_stride(resized_image, expected_stride)
             if rgb_bytes is None:
                 print("⚠️  Using test pattern instead")
                 rgb_bytes = create_test_pattern()
