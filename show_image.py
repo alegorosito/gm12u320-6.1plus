@@ -72,7 +72,8 @@ def create_rgb_buffer_with_stride(image):
             # Add data bytes for this line
             for x in range(PROJECTOR_WIDTH):
                 r, g, b = array[y, x]
-                buffer.extend([r, g, b])
+                # Use BGR order (test 2 was correct)
+                buffer.extend([b, g, r])
             
             # Add padding bytes to reach stride
             buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
@@ -82,6 +83,7 @@ def create_rgb_buffer_with_stride(image):
         print(f"Data bytes per line: {DATA_BYTES_PER_LINE}")
         print(f"Padding bytes per line: {PADDING_BYTES_PER_LINE}")
         print(f"Total stride per line: {STRIDE_BYTES_PER_LINE}")
+        print(f"Color order: BGR (test 2)")
         
         return bytes(buffer)
     except Exception as e:
@@ -99,12 +101,14 @@ def create_test_pattern():
                 r = (x * 255) // PROJECTOR_WIDTH
                 g = (y * 255) // PROJECTOR_HEIGHT
                 b = 128
-                buffer.extend([r, g, b])
+                # Use BGR order (test 2 was correct)
+                buffer.extend([b, g, r])
             
             # Add padding bytes to reach stride
             buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
         
         print(f"Test pattern created: {len(buffer)} bytes")
+        print(f"Color order: BGR (test 2)")
         return bytes(buffer)
     except Exception as e:
         print(f"Error creating test pattern: {e}")
