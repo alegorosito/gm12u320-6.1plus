@@ -175,9 +175,9 @@ def resize_image(image, target_width, target_height):
         print(f"❌ Error resizing image: {e}")
         return None
 
-def image_to_rgb_array_with_stride(image, expected_stride=None):
+def image_to_rgb_array_with_stride(image, expected_stride=None, swap_bgr=False):
     """
-    Convert PIL image to RGB byte array for GM12U320 projector,
+    Convert PIL image to RGB (or BGR) byte array for GM12U320 projector,
     optionally adding padding bytes per line to meet expected stride.
     """
     try:
@@ -189,11 +189,13 @@ def image_to_rgb_array_with_stride(image, expected_stride=None):
             print(f"❌ Invalid image format: shape={array.shape}")
             return None
 
+        if swap_bgr:
+            array = array[:, :, ::-1]  # RGB → BGR
+
         height, width, _ = array.shape
         line_bytes = width * 3
 
         if expected_stride is None or expected_stride <= line_bytes:
-            # No padding necessary
             print(f"✅ No stride adjustment needed ({line_bytes} bytes per line)")
             return array.tobytes()
 
@@ -208,6 +210,7 @@ def image_to_rgb_array_with_stride(image, expected_stride=None):
 
         print(f"✅ Image converted with stride {expected_stride}, total bytes: {len(buffer)}")
         return bytes(buffer)
+
     except Exception as e:
         print(f"❌ Error converting image to RGB with stride: {e}")
         return None
