@@ -142,25 +142,24 @@ def capture_screen():
         print(f"❌ Screen capture error: {e}")
         return None
 
-def create_test_pattern():
-    """Create test pattern with proper stride"""
+def create_test_pattern(frame_number=0):
+    """Create animated test pattern with proper stride"""
     try:
         buffer = bytearray()
         
         for y in range(PROJECTOR_HEIGHT):
             # Add data bytes for this line
             for x in range(PROJECTOR_WIDTH):
-                r = (x * 255) // PROJECTOR_WIDTH
-                g = (y * 255) // PROJECTOR_HEIGHT
-                b = 128
+                # Create animated pattern
+                r = (x * 255 + frame_number * 10) % 256
+                g = (y * 255 + frame_number * 15) % 256
+                b = (128 + frame_number * 20) % 256
                 # Use BGR order (test 2 was correct)
                 buffer.extend([b, g, r])
             
             # Add padding bytes to reach stride
             buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
         
-        print(f"Test pattern created: {len(buffer)} bytes")
-        print(f"Color order: BGR (test 2)")
         return bytes(buffer)
     except Exception as e:
         print(f"Error creating test pattern: {e}")
@@ -202,10 +201,32 @@ def main():
     
     print("Projector device found: /dev/dri/card2")
     
-    # Get image source from command line or use screen capture
+    # Parse command line arguments
+    fps = 10  # Default FPS
+    image_source = None
+    
     if len(sys.argv) > 1:
-        image_source = sys.argv[1]
-        
+        # Check if first argument is FPS
+        try:
+            fps = float(sys.argv[1])
+            if fps <= 0 or fps > 60:
+                print("FPS must be between 0.1 and 60")
+                return 1
+            print(f"Using FPS: {fps}")
+            
+            # Check if second argument is image source
+            if len(sys.argv) > 2:
+                image_source = sys.argv[2]
+        except ValueError:
+            # First argument is not FPS, treat as image source
+            image_source = sys.argv[1]
+    
+    # Calculate frame interval
+    frame_interval = 1.0 / fps
+    print(f"Frame interval: {frame_interval:.3f} seconds")
+    
+    # Get image source
+    if image_source:
         if image_source == "screen" or image_source == "capture":
             print("Capturing screen for projector")
             image = capture_screen()
@@ -221,49 +242,75 @@ def main():
             image = None
             
         if image is None:
-            print("Using test pattern instead")
-            data = create_test_pattern()
+            print("Using animated test pattern instead")
+            use_static_image = False
         else:
             # Resize image
             resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
             if resized_image is None:
-                print("Using test pattern instead")
-                data = create_test_pattern()
+                print("Using animated test pattern instead")
+                use_static_image = False
             else:
                 # Convert to RGB buffer with stride
-                data = create_rgb_buffer_with_stride(resized_image)
-                if data is None:
-                    print("Using test pattern instead")
-                    data = create_test_pattern()
+                static_data = create_rgb_buffer_with_stride(resized_image)
+                if static_data is None:
+                    print("Using animated test pattern instead")
+                    use_static_image = False
+                else:
+                    use_static_image = True
     else:
-        print("Creating test pattern")
-        print("Use 'python3 show_image.py screen' to capture screen")
-        data = create_test_pattern()
+        print("Using animated test pattern")
+        use_static_image = False
     
-    if not data:
-        print("Failed to create image data")
-        return 1
-    
-    # Write to file
-    if not write_to_file(data):
-        print("Failed to write image to file")
-        return 1
-    
-    print("Image sent to projector successfully")
-    print("The driver will read the image from /tmp/gm12u320_image.rgb")
+    print(f"Refresh rate: {fps} FPS")
     print("Press Ctrl+C to stop")
+    
+    # Main refresh loop
+    frame_count = 0
+    start_time = time.time()
     
     try:
         while True:
-            time.sleep(1)
+            frame_start = time.time()
+            
+            if use_static_image:
+                # Use static image
+                data = static_data
+            else:
+                # Create animated test pattern
+                data = create_test_pattern(frame_count)
+            
+            if data:
+                # Write to file
+                if write_to_file(data):
+                    frame_count += 1
+                    
+                    # Calculate and display stats every 10 frames
+                    if frame_count % 10 == 0:
+                        elapsed = time.time() - start_time
+                        actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                        print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
+            
+            # Calculate sleep time to maintain FPS
+            frame_time = time.time() - frame_start
+            sleep_time = max(0, frame_interval - frame_time)
+            
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
     except KeyboardInterrupt:
-        print("Stopping image display")
+        print("\nStopping image display")
         try:
             os.remove("/tmp/temp_screen.jpg")
             os.remove("/tmp/gm12u320_image.rgb")
             print("Image files removed, projector will show test pattern")
         except:
             pass
+        
+        # Final stats
+        total_time = time.time() - start_time
+        final_fps = frame_count / total_time if total_time > 0 else 0
+        print(f"Final stats: {frame_count} frames in {total_time:.1f}s = {final_fps:.1f} FPS")
         return 0
 
 if __name__ == "__main__":
