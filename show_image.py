@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 GM12U320 Projector Image Display Script
-Handles 800x600 resolution with 2560 byte stride (2400 data + 160 padding)
+Handles 800x600 resolution with 2562 byte stride (2400 data + 162 padding)
+Can display images from file, URL, or capture screen
 """
 
 import numpy as np
 import os
 import sys
+import time
+import subprocess
 from PIL import Image
 import requests
 import io
@@ -90,6 +93,55 @@ def create_rgb_buffer_with_stride(image):
         print(f"Error creating RGB buffer: {e}")
         return None
 
+def capture_screen():
+    """Capture screen using Ubuntu tools"""
+    try:
+        print("📸 Capturing screen...")
+        
+        # Try gnome-screenshot first (most reliable on Ubuntu)
+        try:
+            result = subprocess.run(['gnome-screenshot', '-f', '/tmp/temp_screen.jpg', '--no-border'], 
+                                  capture_output=True, timeout=5)
+            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
+                image = Image.open('/tmp/temp_screen.jpg')
+                print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
+                return image
+        except Exception as e:
+            print(f"gnome-screenshot failed: {e}")
+        
+        # Try import command (ImageMagick)
+        try:
+            result = subprocess.run(['import', '-window', 'root', '/tmp/temp_screen.jpg'], 
+                                  capture_output=True, timeout=5)
+            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
+                image = Image.open('/tmp/temp_screen.jpg')
+                print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
+                return image
+        except Exception as e:
+            print(f"import failed: {e}")
+        
+        # Try xwd command
+        try:
+            result = subprocess.run(['xwd', '-root', '-out', '/tmp/temp_screen.xwd'], 
+                                  capture_output=True, timeout=5)
+            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.xwd'):
+                convert_result = subprocess.run(['convert', '/tmp/temp_screen.xwd', '/tmp/temp_screen.jpg'], 
+                                             capture_output=True, timeout=5)
+                if convert_result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
+                    image = Image.open('/tmp/temp_screen.jpg')
+                    os.remove('/tmp/temp_screen.xwd')
+                    print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
+                    return image
+        except Exception as e:
+            print(f"xwd failed: {e}")
+        
+        print("❌ All screen capture methods failed")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Screen capture error: {e}")
+        return None
+
 def create_test_pattern():
     """Create test pattern with proper stride"""
     try:
@@ -150,12 +202,14 @@ def main():
     
     print("Projector device found: /dev/dri/card2")
     
-    # Get image source from command line or use test pattern
+    # Get image source from command line or use screen capture
     if len(sys.argv) > 1:
         image_source = sys.argv[1]
         
-        # Check if it's a local file or URL
-        if os.path.exists(image_source):
+        if image_source == "screen" or image_source == "capture":
+            print("Capturing screen for projector")
+            image = capture_screen()
+        elif os.path.exists(image_source):
             print(f"Using local image file: {image_source}")
             image = load_image_from_path(image_source)
         elif image_source.startswith(('http://', 'https://')):
@@ -163,6 +217,7 @@ def main():
             image = download_image(image_source)
         else:
             print(f"Invalid image source: {image_source}")
+            print("Use 'screen' to capture screen, or provide file path/URL")
             image = None
             
         if image is None:
@@ -182,6 +237,7 @@ def main():
                     data = create_test_pattern()
     else:
         print("Creating test pattern")
+        print("Use 'python3 show_image.py screen' to capture screen")
         data = create_test_pattern()
     
     if not data:
@@ -199,13 +255,13 @@ def main():
     
     try:
         while True:
-            import time
             time.sleep(1)
     except KeyboardInterrupt:
         print("Stopping image display")
         try:
+            os.remove("/tmp/temp_screen.jpg")
             os.remove("/tmp/gm12u320_image.rgb")
-            print("Image file removed, projector will show test pattern")
+            print("Image files removed, projector will show test pattern")
         except:
             pass
         return 0
