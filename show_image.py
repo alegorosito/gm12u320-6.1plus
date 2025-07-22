@@ -1,38 +1,11 @@
 #!/usr/bin/env python3
-"""
-GM12U320 Projector Image Display Script
-=======================================
-✅ Modo normal: muestra una imagen llenando toda la pantalla del proyector.
-✅ Modo test: recorre automáticamente combinaciones de resolución / stride / bgr / escalado y detecta la más “óptima”.
+import json, os, sys, time, datetime, requests, io
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
-Uso:
-----
-Normal:
-    python3 show_image.py <imagen_local|url>
-
-Test automático:
-    python3 show_image.py --test <imagen_local|url>
-
-Logs:
------
-Guarda los resultados en: gm12u320_test.log
-"""
-
-import requests, numpy as np, io, time, sys, os, datetime
-from PIL import Image
-
-LOG_FILE = "gm12u320_test.log"
-PROJECTOR_DEVICE = '/dev/dri/card2'
-OUTPUT_FILE = "/tmp/gm12u320_image.rgb"
-
-RESOLUTIONS = [
-    (600, 480, 2048),
-    (640, 480, 2048),
-    (800, 600, 2560),
-    (1024, 768, 4096),
-]
-
-best_config = {"score": float("inf"), "config": None}
+CONFIG_FILE = "gm12u320_best.json"
+LOG_FILE = "gm12u320.log"
+DEFAULTS = dict(width=800, height=600, stride=2560, swap_bgr=False, mode="Exact-fit")
 
 def log(msg):
     print(msg)
@@ -40,166 +13,108 @@ def log(msg):
         f.write(f"{datetime.datetime.now()}: {msg}\n")
 
 def check_projector_status():
-    log(f"🎥 Checking projector device {PROJECTOR_DEVICE} …")
-    if not os.path.exists(PROJECTOR_DEVICE):
-        log("❌ Projector device not found.")
+    log("🎥 Checking /dev/dri/card2 …")
+    if not os.path.exists('/dev/dri/card2'):
+        log("❌ Projector /dev/dri/card2 not found.")
         return False
     log("✅ Projector detected.")
     return True
 
-def cleanup():
-    try:
-        os.remove(OUTPUT_FILE)
-        log("🧹 Removed temporary image file.")
-    except:
-        pass
-
 def load_image(src):
     try:
-        if os.path.isfile(src):
+        if os.path.exists(src):
             log(f"📂 Loading local image: {src}")
-            img = Image.open(src).convert("RGB")
-        elif src.startswith(('http', 'https')):
-            log(f"📥 Downloading image: {src}")
+            img = Image.open(src)
+        else:
+            log(f"📥 Downloading: {src}")
             r = requests.get(src, timeout=10)
             r.raise_for_status()
-            img = Image.open(io.BytesIO(r.content)).convert("RGB")
-        else:
-            raise ValueError("Invalid image source")
-        log(f"✅ Image loaded: {img.size[0]}x{img.size[1]}")
-        return img
+            img = Image.open(io.BytesIO(r.content))
+        return img.convert("RGB")
     except Exception as e:
         log(f"❌ Failed to load image: {e}")
         return None
 
-def resize_image(image, w, h, mode):
+def resize_image(image, target_w, target_h, mode="Exact-fit"):
     if mode == "Exact-fit":
-        img = image.resize((w, h), Image.Resampling.LANCZOS)
-        log(f"✅ Resized exact {w}x{h}")
-        return img
+        resized = image.resize((target_w, target_h), Image.Resampling.LANCZOS)
     else:
         img_w, img_h = image.size
-        target_ratio = w / h
-        img_ratio = img_w / img_h
+        target_ratio = target_w/target_h
+        img_ratio = img_w/img_h
         if img_ratio > target_ratio:
-            new_w = w
-            new_h = int(w / img_ratio)
+            new_w, new_h = target_w, int(target_w/img_ratio)
         else:
-            new_h = h
-            new_w = int(h * img_ratio)
-        canvas = Image.new("RGB", (w,h), (0,0,0))
+            new_h, new_w = target_h, int(target_h*img_ratio)
+        resized = Image.new("RGB", (target_w,target_h), (0,0,0))
         tmp = image.resize((new_w,new_h), Image.Resampling.LANCZOS)
-        x = (w-new_w)//2
-        y = (h-new_h)//2
-        canvas.paste(tmp, (x,y))
-        log(f"✅ Resized aspect-fit {new_w}x{new_h}")
-        return canvas
+        x = (target_w-new_w)//2
+        y = (target_h-new_h)//2
+        resized.paste(tmp,(x,y))
+    log(f"✅ Resized to {target_w}x{target_h} mode={mode}")
+    return resized
 
-def image_to_rgb(image, stride, swap_bgr):
-    arr = np.array(image, dtype=np.uint8)
-    if swap_bgr: arr = arr[:,:,::-1]
-    h,w,_ = arr.shape
+def image_to_rgb_array_with_stride(img, stride, swap_bgr=False):
+    a = np.array(img, dtype=np.uint8)
+    if swap_bgr:
+        a = a[:,:,::-1]
+    h,w,_ = a.shape
     line_bytes = w*3
-    pad = stride - line_bytes
-    score = abs(pad)  # cuanto menor el padding, mejor
-    buf = bytearray()
+    pad = stride-line_bytes
+    b = bytearray()
     for y in range(h):
-        buf += arr[y,:,:].tobytes()
-        if pad > 0: buf += b'\x00'*pad
-    log(f"✅ Converted: stride={stride} swap_bgr={swap_bgr} pad/line={pad}")
-    return bytes(buf), score
+        b += a[y,:,:].tobytes()
+        b += b'\x00'*pad
+    return bytes(b)
 
-def write_image(data):
-    with open(OUTPUT_FILE, 'wb') as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    log(f"✅ Image written to {OUTPUT_FILE}")
+def write_image_to_file(rgb, fn="/tmp/gm12u320_image.rgb"):
+    try:
+        with open(fn, 'wb') as f:
+            f.write(rgb)
+            f.flush()
+            os.fsync(f.fileno())
+        log(f"✅ Written image to {fn}")
+        return True
+    except Exception as e:
+        log(f"❌ Failed to write image: {e}")
+        return False
 
-def run_normal(image_source, config=None):
-    log("🎯 NORMAL mode")
-    img = load_image(image_source)
-    if img is None: return
-    if config:
-        w,h,s,swap,mode = config
-    else:
-        w,h,s,swap,mode = 800,600,2560,False,"Exact-fit"
-    img = create_grid_test_image(w, h)
-    rgb,_ = image_to_rgb(img,s,swap)
-    write_image(rgb)
-    log(f"🎯 Displaying {w}x{h} stride={s} swap_bgr={swap} mode={mode}… Ctrl+C to exit")
-    try: 
-        while True: time.sleep(1)
-    except KeyboardInterrupt:
-        cleanup()
+def cleanup():
+    try:
+        os.remove("/tmp/gm12u320_image.rgb")
+        log("🧹 Removed tmp file")
+    except:
+        pass
 
-def run_tests(image_source):
-    global best_config
-    log("🧪 TEST mode")
-    img = load_image(image_source)
-    if img is None: return
-    modes = ["Exact-fit","Aspect-fit"]
-    swaps = [False,True]
-    for w,h,s in RESOLUTIONS:
-        for mode in modes:
-            resized = resize_image(img,w,h,mode)
-            for swap in swaps:
-                log(f"🎯 Testing: {w}x{h} stride={s} swap_bgr={swap} mode={mode}")
-                rgb,score = image_to_rgb(resized,s,swap)
-                write_image(rgb)
-                log(f"🔎 Observe output. Waiting 3s…")
-                if score < best_config["score"]:
-                    best_config = {
-                        "score": score,
-                        "config": (w,h,s,swap,mode)
-                    }
-                time.sleep(3)
-    cleanup()
-    best = best_config["config"]
-    if best:
-        log(f"✅ Best configuration detected: {best}")
-        print(f"\n🎯 Best detected: Resolution={best[0]}x{best[1]} Stride={best[2]} Swap_BGR={best[3]} Mode={best[4]}")
-        print(f"Run normally with:\n  sudo python3 show_image.py <image>")
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE) as f:
+            cfg = json.load(f)
+        log(f"ℹ️ Loaded config from {CONFIG_FILE}: {cfg}")
+        return cfg
+    log(f"⚠️ No config found, using defaults: {DEFAULTS}")
+    return DEFAULTS
 
-from PIL import ImageDraw, ImageFont
+def main(image_path):
+    if not check_projector_status(): return 1
 
-def create_grid_test_image(w, h):
-    img = Image.new("RGB", (w,h), (0,0,0))
-    draw = ImageDraw.Draw(img)
+    cfg = load_config()
+    img = load_image(image_path)
+    if img is None: return 1
 
-    # borde rojo
-    draw.rectangle([0,0,w-1,h-1], outline=(255,0,0), width=5)
+    resized = resize_image(img, cfg["width"], cfg["height"], cfg["mode"])
+    rgb = image_to_rgb_array_with_stride(resized, cfg["stride"], cfg["swap_bgr"])
 
-    # líneas diagonales
-    draw.line([(0,0),(w,h)], fill=(0,255,0), width=3)
-    draw.line([(w,0),(0,h)], fill=(0,255,0), width=3)
-
-    # líneas vertical/horizontal medias
-    draw.line([(w//2,0),(w//2,h)], fill=(0,0,255), width=1)
-    draw.line([(0,h//2),(w,h//2)], fill=(0,0,255), width=1)
-
-    # números en esquinas y centro
-    font = ImageFont.load_default()
-    draw.text((10,10), "TL", fill=(255,255,255), font=font)
-    draw.text((w-30,10), "TR", fill=(255,255,255), font=font)
-    draw.text((10,h-20), "BL", fill=(255,255,255), font=font)
-    draw.text((w-30,h-20), "BR", fill=(255,255,255), font=font)
-    draw.text((w//2-10,h//2-10), "C", fill=(255,255,255), font=font)
-
-    return img
-
-def main():
-    if not check_projector_status(): return
-    if len(sys.argv) < 2:
-        log("❌ Usage: python3 show_image.py [--test] <image>")
-        return
-    if sys.argv[1] == "--test":
-        if len(sys.argv)<3:
-            log("❌ Provide image path or URL for test.")
-            return
-        run_tests(sys.argv[2])
-    else:
-        run_normal(sys.argv[1])
+    if rgb and write_image_to_file(rgb):
+        log("🎯 Image sent to projector. Ctrl+C to exit.")
+        try:
+            while True: time.sleep(1)
+        except KeyboardInterrupt:
+            cleanup()
+            return 0
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Usage: python3 show_image.py <image>")
+        sys.exit(1)
+    sys.exit(main(sys.argv[1]))
