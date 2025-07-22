@@ -123,38 +123,76 @@ class SmartMirror:
             print(f"❌ Error capturing from {fb_path}: {e}")
             return None
     
-    def capture_screen_ffmpeg(self):
-        """Try to capture screen using ffmpeg"""
+    def capture_screen_simple(self):
+        """Simple screen capture approach"""
         try:
-            # Try different ffmpeg approaches
-            approaches = [
-                # Try framebuffer
-                ['ffmpeg', '-f', 'fbdev', '-i', '/dev/fb0', '-s', '800x600', 
-                 '-vframes', '1', '-f', 'image2pipe', '-pix_fmt', 'rgb24', 
-                 '-vcodec', 'rawvideo', '-'],
-                # Try video4linux2 (if available)
-                ['ffmpeg', '-f', 'v4l2', '-i', '/dev/video0', '-s', '800x600',
-                 '-vframes', '1', '-f', 'image2pipe', '-pix_fmt', 'rgb24',
-                 '-vcodec', 'rawvideo', '-'],
-            ]
+            print("📸 Taking simple screen capture...")
             
-            for i, cmd in enumerate(approaches):
-                try:
-                    print(f"Trying FFmpeg approach {i+1}...")
-                    result = subprocess.run(cmd, capture_output=True, timeout=3)
+            # Method 1: Try to read framebuffer directly
+            try:
+                with open('/dev/fb0', 'rb') as fb:
+                    fb.seek(0)
+                    # Read a reasonable amount of data
+                    data = fb.read(1920 * 1080 * 3)  # Common resolution
                     
-                    if result.returncode == 0 and len(result.stdout) == PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
-                        img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), result.stdout)
-                        print(f"✅ FFmpeg approach {i+1} successful")
-                        return img
-                except:
-                    continue
+                    if len(data) > 0:
+                        # Try to create image from data
+                        # Assume it's 1920x1080 or similar
+                        width = 1920
+                        height = 1080
+                        
+                        # Make sure we have enough data
+                        if len(data) >= width * height * 3:
+                            img = Image.frombytes('RGB', (width, height), data[:width * height * 3])
+                            print(f"✅ Captured {width}x{height} from framebuffer")
+                            return img
+                        else:
+                            # Try smaller resolution
+                            width = 800
+                            height = 600
+                            if len(data) >= width * height * 3:
+                                img = Image.frombytes('RGB', (width, height), data[:width * height * 3])
+                                print(f"✅ Captured {width}x{height} from framebuffer")
+                                return img
+            except Exception as e:
+                print(f"Framebuffer capture failed: {e}")
             
-            print("❌ All FFmpeg approaches failed")
+            # Method 2: Try to use import command to capture screen
+            try:
+                print("Trying import command...")
+                result = subprocess.run(['import', '-window', 'root', '-resize', '800x600', 'temp_screen.png'], 
+                                      capture_output=True, timeout=5)
+                if result.returncode == 0 and os.path.exists('temp_screen.png'):
+                    img = Image.open('temp_screen.png')
+                    os.remove('temp_screen.png')
+                    print("✅ Captured using import command")
+                    return img
+            except Exception as e:
+                print(f"Import command failed: {e}")
+            
+            # Method 3: Try to use xwd command
+            try:
+                print("Trying xwd command...")
+                result = subprocess.run(['xwd', '-root', '-out', 'temp_screen.xwd'], 
+                                      capture_output=True, timeout=5)
+                if result.returncode == 0 and os.path.exists('temp_screen.xwd'):
+                    # Convert xwd to png using ImageMagick
+                    subprocess.run(['convert', 'temp_screen.xwd', 'temp_screen.png'], 
+                                 capture_output=True, timeout=5)
+                    if os.path.exists('temp_screen.png'):
+                        img = Image.open('temp_screen.png')
+                        os.remove('temp_screen.xwd')
+                        os.remove('temp_screen.png')
+                        print("✅ Captured using xwd command")
+                        return img
+            except Exception as e:
+                print(f"Xwd command failed: {e}")
+            
+            print("❌ All simple capture methods failed")
             return None
             
         except Exception as e:
-            print(f"❌ FFmpeg capture error: {e}")
+            print(f"❌ Simple capture error: {e}")
             return None
     
     def create_dynamic_test_pattern(self):
@@ -256,16 +294,12 @@ class SmartMirror:
         try:
             screenshot = None
             
-            # Try active framebuffer first
-            if self.active_framebuffer:
-                screenshot = self.capture_from_framebuffer(self.active_framebuffer)
+            # Try simple capture methods
+            screenshot = self.capture_screen_simple()
             
-            # Try FFmpeg if framebuffer failed
+            # Fallback to test pattern if all methods fail
             if screenshot is None:
-                screenshot = self.capture_screen_ffmpeg()
-            
-            # Fallback to test pattern
-            if screenshot is None:
+                print("Using test pattern as fallback")
                 screenshot = self.create_dynamic_test_pattern()
             
             if screenshot is None:
@@ -294,11 +328,9 @@ class SmartMirror:
     
     def mirror_loop(self):
         """Main mirroring loop"""
-        print("Starting smart live mirror...")
+        print("Starting simple live mirror...")
         print(f"Capture interval: {CAPTURE_INTERVAL*1000:.0f}ms")
         print(f"Target resolution: {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT}")
-        if self.active_framebuffer:
-            print(f"Using framebuffer: {self.active_framebuffer}")
         print("Press Ctrl+C to stop")
         
         self.running = True
@@ -331,13 +363,10 @@ class SmartMirror:
         if not self.check_dependencies():
             return False
         
-        print("GM12U320 Smart Live Mirror")
+        print("GM12U320 Simple Live Mirror")
         print("===========================")
-        print("This will automatically detect and capture the active screen")
+        print("This will capture screen using simple methods")
         print("Press Ctrl+C to stop")
-        
-        # Find active framebuffer
-        self.active_framebuffer = self.find_active_framebuffer()
         
         try:
             self.mirror_loop()
