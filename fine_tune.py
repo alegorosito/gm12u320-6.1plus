@@ -1,107 +1,114 @@
 #!/usr/bin/env python3
 """
-GM12U320 Fine-tuning Script
-===========================
-
-🔍 Probar automáticamente combinaciones de:
-- Resolución (640×480, 800×600, 1024×768)
-- Stride (mínimo y múltiplos de 64)
-- swap_bgr (False/True)
-- resize_mode (Exact-fit/Aspect-fit)
-
-Guarda resultados en: gm12u320_finetune.log
+Fine-tune GM12U320 projector
+✅ prueba negro completo
+✅ prueba patrón de rayas
+✅ prueba combinaciones ganadoras
+✅ limpia memoria y fuerza relleno
 """
 
-import requests, numpy as np, io, sys, os, time, datetime
+import numpy as np
 from PIL import Image
+import os, time, sys
 
-LOG_FILE = "gm12u320_finetune.log"
+OUTPUT_FILE = "/tmp/gm12u320_image.rgb"
+PROJECTOR_DEVICE = "/dev/dri/card2"
+BEST_COMBOS = [
+    (800,600,2560,True,"Exact-fit"),
+    (800,600,2560,False,"Exact-fit"),
+    (640,480,2048,True,"Exact-fit"),
+    (640,480,2048,False,"Exact-fit"),
+    (800,600,2560,True,"Aspect-fit"),
+    (800,600,2560,False,"Aspect-fit")
+]
 
-RESOLUTIONS = [(640, 480), (800, 600), (1024, 768)]
-MODES = ["Exact-fit", "Aspect-fit"]
 
 def log(msg):
     print(msg)
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{datetime.datetime.now()}: {msg}\n")
 
-def load_image(image_source):
-    if os.path.exists(image_source):
-        img = Image.open(image_source)
-        log(f"📂 Loaded local image: {image_source}")
-    elif image_source.startswith(('http://', 'https://')):
-        r = requests.get(image_source, timeout=10)
-        r.raise_for_status()
-        img = Image.open(io.BytesIO(r.content))
-        log(f"📥 Downloaded image: {image_source}")
-    else:
-        log("❌ Invalid image source.")
-        sys.exit(1)
-    return img.convert("RGB")
 
-def resize_image(img, w, h, mode):
-    if mode == "Exact-fit":
-        return img.resize((w, h), Image.LANCZOS)
-    else:
-        img_w, img_h = img.size
-        ratio = min(w/img_w, h/img_h)
-        new_w, new_h = int(img_w*ratio), int(img_h*ratio)
-        resized = Image.new("RGB", (w,h), (0,0,0))
-        tmp = img.resize((new_w, new_h), Image.LANCZOS)
-        x, y = (w-new_w)//2, (h-new_h)//2
-        resized.paste(tmp, (x,y))
-        return resized
+def generate_image(w, h, mode, pattern):
+    """Genera imagen según patrón: negro, rayas, diag"""
+    img = Image.new("RGB", (w,h), (0,0,0))
+    if pattern == "black":
+        return img
 
-def compute_strides(w):
-    base = w*3
-    strides = []
-    for mult in range(1,6):
-        s = ((base + 63)//64)*64 + (mult-1)*64
-        strides.append(s)
-    return strides
+    arr = np.zeros((h,w,3), dtype=np.uint8)
 
-def image_to_bytes(img, stride, swap_bgr):
-    arr = np.array(img)
+    if pattern == "stripes-h":
+        for y in range(h):
+            color = 255 if (y//10)%2==0 else 0
+            arr[y,:,:] = [color,color,color]
+    elif pattern == "stripes-v":
+        for x in range(w):
+            color = 255 if (x//10)%2==0 else 0
+            arr[:,x,:] = [color,color,color]
+    elif pattern == "diagonal":
+        for y in range(h):
+            for x in range(w):
+                if abs(x-y)<5:
+                    arr[y,x,:] = [255,255,255]
+    else:  # default: grey
+        arr[:,:,:] = [128,128,128]
+
+    return Image.fromarray(arr,"RGB")
+
+
+def to_rgb_bytes(img, stride, swap_bgr):
+    a = np.array(img, dtype=np.uint8)
     if swap_bgr:
-        arr = arr[:,:,::-1]
-    h,w,_ = arr.shape
+        a = a[:,:,::-1]
+    h,w,_ = a.shape
     line_bytes = w*3
     pad = stride - line_bytes
+
     buf = bytearray()
     for y in range(h):
-        buf += arr[y].tobytes()
+        buf += a[y,:,:].tobytes()
         buf += b'\x00'*pad
+
     return bytes(buf)
 
-def write_image(data, path="/tmp/gm12u320_image.rgb"):
-    with open(path, "wb") as f:
+
+def write_to_file(data):
+    with open(OUTPUT_FILE,'wb') as f:
         f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    log(f"✅ Image written to {OUTPUT_FILE}")
 
-def run_tests(image_source):
-    img = load_image(image_source)
-    log("🧪 Starting fine-tune tests…")
-    combinations = []
-    for (w,h) in RESOLUTIONS:
-        strides = compute_strides(w)
-        for mode in MODES:
-            resized = resize_image(img,w,h,mode)
-            for stride in strides:
-                for swap in [False, True]:
-                    combinations.append( (w,h,stride,swap,mode,resized) )
 
-    for idx,(w,h,stride,swap,mode,resized) in enumerate(combinations,1):
-        log(f"🔷 Test {idx}: {w}x{h} stride={stride} swap_bgr={swap} mode={mode}")
-        data = image_to_bytes(resized,stride,swap)
-        write_image(data)
-        log(f"✅ Image written: {len(data)} bytes.")
-        log("⌛ Observe projector output.")
-        time.sleep(5)
+def test_combo(w,h,stride,swap,mode,pattern):
+    log(f"\n🎯 Testing: w={w} h={h} stride={stride} swap_bgr={swap} mode={mode} pattern={pattern}")
+    img = generate_image(w,h,mode=mode,pattern=pattern)
+    rgb = to_rgb_bytes(img, stride, swap)
+    write_to_file(rgb)
+    time.sleep(3)
 
-    log("🎯 Fine-tune tests completed.")
-    print("\n✅ Finished all tests. Check gm12u320_finetune.log for details.")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("❌ Usage: python3 show_image_finetune.py <image>")
+    if not os.path.exists(PROJECTOR_DEVICE):
+        log(f"❌ Projector device {PROJECTOR_DEVICE} not found.")
         sys.exit(1)
-    run_tests(sys.argv[1])
+
+    log("🧹 Sending full black frame to clear projector")
+    black = generate_image(800,600,"Exact-fit","black")
+    write_to_file(to_rgb_bytes(black, 2560, False))
+    time.sleep(3)
+
+    patterns = ["black", "stripes-h", "stripes-v", "diagonal"]
+
+    for idx, (w,h,s,stride_swap,mode) in enumerate(BEST_COMBOS,1):
+        for pat in patterns:
+            test_combo(w,h,s,stride_swap,mode,pat)
+
+    log("✅ Finished fine-tuning tests. Press Ctrl+C to exit.")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        log("🛑 Exiting and cleaning up.")
+        try: os.remove(OUTPUT_FILE)
+        except: pass
+        sys.exit(0)
