@@ -29,12 +29,17 @@ pip3 install Pillow
 echo "Installing numpy..."
 pip3 install numpy
 
+# Install mss for screen capture
+echo "Installing mss..."
+pip3 install mss
+
 echo ""
 echo "✅ All dependencies installed successfully!"
 echo ""
 echo "🚀 Usage:"
 echo "  python3 show_image.py                    # Use default image"
 echo "  python3 show_image.py <image_url>        # Use custom image URL"
+echo "  python3 live_mirror.py                   # Live screen mirror"
 echo ""
 echo "📝 Example:"
 echo "  python3 show_image.py https://picsum.photos/id/1/800/600" 
