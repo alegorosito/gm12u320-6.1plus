@@ -132,14 +132,13 @@ class SmartMirror:
             try:
                 with open('/dev/fb0', 'rb') as fb:
                     fb.seek(0)
-                    # Read a reasonable amount of data
-                    data = fb.read(1920 * 1080 * 3)  # Common resolution
+                    # Read data for 1024x768 resolution (your actual screen)
+                    data = fb.read(1024 * 768 * 3)
                     
                     if len(data) > 0:
-                        # Try to create image from data
-                        # Assume it's 1920x1080 or similar
-                        width = 1920
-                        height = 1080
+                        # Create image from 1024x768 data
+                        width = 1024
+                        height = 768
                         
                         # Make sure we have enough data
                         if len(data) >= width * height * 3:
@@ -147,12 +146,13 @@ class SmartMirror:
                             print(f"✅ Captured {width}x{height} from framebuffer")
                             return img
                         else:
-                            # Try smaller resolution
+                            print(f"❌ Insufficient data: {len(data)} bytes for {width}x{height}")
+                            # Try smaller resolution as fallback
                             width = 800
                             height = 600
                             if len(data) >= width * height * 3:
                                 img = Image.frombytes('RGB', (width, height), data[:width * height * 3])
-                                print(f"✅ Captured {width}x{height} from framebuffer")
+                                print(f"✅ Captured {width}x{height} from framebuffer (fallback)")
                                 return img
             except Exception as e:
                 print(f"Framebuffer capture failed: {e}")
