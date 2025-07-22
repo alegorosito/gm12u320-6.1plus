@@ -138,9 +138,9 @@ def write_to_file(data, filename="/tmp/gm12u320_image.rgb"):
     """Write data to file with validation"""
     try:
         with open(filename, 'wb') as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
         
         # Validate file size
         file_size = os.path.getsize(filename)
@@ -239,7 +239,7 @@ def main():
     
     print(f"\nWill test {len(color_combinations)} color combinations")
     print("Press Enter to start, or 'q' to quit")
-    
+
     try:
         input()
     except KeyboardInterrupt:

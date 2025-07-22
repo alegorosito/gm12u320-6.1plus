@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-GM12U320 FFmpeg Screen Mirror
-Uses ffmpeg to capture screen and send to projector
+GM12U320 Smart Screen Mirror
+Automatically detects and captures the active screen
 """
 
 import numpy as np
@@ -23,12 +23,12 @@ TOTAL_FILE_SIZE = STRIDE_BYTES_PER_LINE * PROJECTOR_HEIGHT  # 1,537,200 bytes
 # Capture settings
 CAPTURE_INTERVAL = 0.2  # 200ms
 
-class FFmpegMirror:
+class SmartMirror:
     def __init__(self):
         self.running = False
         self.frame_count = 0
         self.last_capture_time = 0
-        self.ffmpeg_process = None
+        self.active_framebuffer = None
         
     def check_dependencies(self):
         """Check if required dependencies are available"""
@@ -36,84 +36,131 @@ class FFmpegMirror:
             print("❌ Projector device /dev/dri/card2 not found")
             print("Please make sure the GM12U320 driver is loaded")
             return False
-            
-        # Check if ffmpeg is available
-        try:
-            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
-            if result.returncode == 0:
-                print("✅ ffmpeg available")
-                return True
-            else:
-                print("❌ ffmpeg not found")
-                return False
-        except FileNotFoundError:
-            print("❌ ffmpeg not installed")
-            print("Install with: sudo apt install ffmpeg")
-            return False
+        print("✅ Projector device found")
+        return True
     
-    def capture_screen_ffmpeg(self):
-        """Capture screen using ffmpeg"""
-        try:
-            # Always use framebuffer since X11 is not available
-            cmd = [
-                'ffmpeg', '-f', 'fbdev', '-i', '/dev/fb0',
-                '-s', '800x600', '-vframes', '1', '-f', 'image2pipe',
-                '-pix_fmt', 'rgb24', '-vcodec', 'rawvideo', '-'
-            ]
-            
-            print("📺 Capturing from framebuffer /dev/fb0...")
-            result = subprocess.run(cmd, capture_output=True, timeout=5)
-            
-            if result.returncode == 0 and len(result.stdout) == PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
-                # Convert raw data to PIL Image
-                img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), result.stdout)
-                print("✅ Framebuffer capture successful")
-                return img
-            else:
-                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
-                print(f"❌ FFmpeg capture failed: {error_msg}")
-                
-                # Try alternative approach - read framebuffer directly
-                return self.capture_framebuffer_direct()
-                
-        except subprocess.TimeoutExpired:
-            print("❌ FFmpeg capture timeout")
-            return None
-        except Exception as e:
-            print(f"❌ FFmpeg capture error: {e}")
-            return None
+    def find_active_framebuffer(self):
+        """Find which framebuffer contains active screen content"""
+        print("🔍 Searching for active framebuffer...")
+        
+        # List all framebuffers
+        framebuffers = []
+        for i in range(4):  # Check fb0 to fb3
+            fb_path = f'/dev/fb{i}'
+            if os.path.exists(fb_path):
+                framebuffers.append(fb_path)
+        
+        print(f"Found framebuffers: {framebuffers}")
+        
+        # Test each framebuffer for content
+        for fb_path in framebuffers:
+            print(f"Testing {fb_path}...")
+            try:
+                with open(fb_path, 'rb') as fb:
+                    # Read a small sample to check if it has content
+                    fb.seek(0)
+                    sample = fb.read(1024)  # Read 1KB sample
+                    
+                    if len(sample) > 0:
+                        # Check if the sample contains non-zero data
+                        if any(b != 0 for b in sample):
+                            print(f"✅ {fb_path} contains data")
+                            
+                            # Try to get framebuffer info
+                            try:
+                                result = subprocess.run(['fbset', '-fb', fb_path], 
+                                                      capture_output=True, text=True, timeout=2)
+                                if result.returncode == 0:
+                                    print(f"Framebuffer info: {result.stdout}")
+                            except:
+                                pass
+                            
+                            return fb_path
+                        else:
+                            print(f"❌ {fb_path} is empty (all zeros)")
+                    else:
+                        print(f"❌ {fb_path} is empty")
+                        
+            except PermissionError:
+                print(f"❌ Permission denied accessing {fb_path}")
+            except Exception as e:
+                print(f"❌ Error testing {fb_path}: {e}")
+        
+        print("❌ No active framebuffer found")
+        return None
     
-    def capture_framebuffer_direct(self):
-        """Capture framebuffer directly without ffmpeg"""
+    def capture_from_framebuffer(self, fb_path):
+        """Capture screen from specific framebuffer"""
         try:
-            print("📺 Trying direct framebuffer capture...")
-            with open('/dev/fb0', 'rb') as fb:
+            print(f"📺 Capturing from {fb_path}...")
+            
+            with open(fb_path, 'rb') as fb:
                 # Read framebuffer data
                 fb.seek(0)
                 data = fb.read(PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3)
                 
                 if len(data) >= PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
                     # Convert raw data to PIL Image
-                    img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), data[:PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3])
-                    print("✅ Direct framebuffer capture successful")
-                    return img
+                    img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), 
+                                        data[:PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3])
+                    
+                    # Check if image has content (not all black)
+                    img_array = np.array(img)
+                    if np.any(img_array > 0):
+                        print(f"✅ Captured {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT} with content")
+                        return img
+                    else:
+                        print(f"❌ Captured image is all black")
+                        return None
                 else:
-                    print(f"❌ Insufficient framebuffer data: {len(data)} bytes")
+                    print(f"❌ Insufficient data: {len(data)} bytes")
                     return None
                     
         except PermissionError:
-            print("❌ Permission denied accessing /dev/fb0")
-            print("Try running with sudo or add user to video group")
+            print(f"❌ Permission denied accessing {fb_path}")
             return None
         except Exception as e:
-            print(f"❌ Direct framebuffer capture failed: {e}")
+            print(f"❌ Error capturing from {fb_path}: {e}")
+            return None
+    
+    def capture_screen_ffmpeg(self):
+        """Try to capture screen using ffmpeg"""
+        try:
+            # Try different ffmpeg approaches
+            approaches = [
+                # Try framebuffer
+                ['ffmpeg', '-f', 'fbdev', '-i', '/dev/fb0', '-s', '800x600', 
+                 '-vframes', '1', '-f', 'image2pipe', '-pix_fmt', 'rgb24', 
+                 '-vcodec', 'rawvideo', '-'],
+                # Try video4linux2 (if available)
+                ['ffmpeg', '-f', 'v4l2', '-i', '/dev/video0', '-s', '800x600',
+                 '-vframes', '1', '-f', 'image2pipe', '-pix_fmt', 'rgb24',
+                 '-vcodec', 'rawvideo', '-'],
+            ]
+            
+            for i, cmd in enumerate(approaches):
+                try:
+                    print(f"Trying FFmpeg approach {i+1}...")
+                    result = subprocess.run(cmd, capture_output=True, timeout=3)
+                    
+                    if result.returncode == 0 and len(result.stdout) == PROJECTOR_WIDTH * PROJECTOR_HEIGHT * 3:
+                        img = Image.frombytes('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), result.stdout)
+                        print(f"✅ FFmpeg approach {i+1} successful")
+                        return img
+                except:
+                    continue
+            
+            print("❌ All FFmpeg approaches failed")
+            return None
+            
+        except Exception as e:
+            print(f"❌ FFmpeg capture error: {e}")
             return None
     
     def create_dynamic_test_pattern(self):
         """Create a dynamic test pattern that simulates screen changes"""
         try:
-            # Create a pattern that changes over time
-            current_time = int(time.time() * 10)  # Change every 100ms
+            current_time = int(time.time() * 10)
             
             image = Image.new('RGB', (PROJECTOR_WIDTH, PROJECTOR_HEIGHT), (0, 0, 0))
             
@@ -125,7 +172,7 @@ class FFmpegMirror:
                 # Draw a moving circle
                 for dy in range(-20, 21):
                     for dx in range(-20, 21):
-                        if dx*dx + dy*dy <= 400:  # Circle radius 20
+                        if dx*dx + dy*dy <= 400:
                             px, py = x + dx, y + dy
                             if 0 <= px < PROJECTOR_WIDTH and 0 <= py < PROJECTOR_HEIGHT:
                                 r = (current_time + i * 25) % 256
@@ -133,7 +180,7 @@ class FFmpegMirror:
                                 b = (current_time + i * 75) % 256
                                 image.putpixel((px, py), (r, g, b))
             
-            # Add text showing it's a test pattern
+            # Add text
             try:
                 from PIL import ImageDraw, ImageFont
                 draw = ImageDraw.Draw(image)
@@ -142,7 +189,7 @@ class FFmpegMirror:
                 except:
                     font = ImageFont.load_default()
                 
-                text = f"FFMPEG TEST {current_time}"
+                text = f"SMART TEST {current_time}"
                 draw.text((10, 10), text, fill=(255, 255, 255), font=font)
             except:
                 pass
@@ -164,18 +211,13 @@ class FFmpegMirror:
     def create_rgb_buffer_with_stride(self, image):
         """Convert PIL image to RGB buffer with proper stride and BGR color order"""
         try:
-            # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
-            # Convert to numpy array
             array = np.array(image, dtype=np.uint8)
-            
-            # Create buffer with proper stride
             buffer = bytearray()
             
             for y in range(PROJECTOR_HEIGHT):
-                # Add data bytes for this line
                 for x in range(PROJECTOR_WIDTH):
                     r, g, b = array[y, x]
                     # Use BGR order (test 2 was correct)
@@ -197,7 +239,6 @@ class FFmpegMirror:
                 f.flush()
                 os.fsync(f.fileno())
             
-            # Validate file size
             file_size = os.path.getsize(filename)
             
             if file_size == TOTAL_FILE_SIZE:
@@ -213,11 +254,18 @@ class FFmpegMirror:
     def update_projector(self):
         """Capture screen and update projector"""
         try:
-            # Try to capture screen with ffmpeg
-            screenshot = self.capture_screen_ffmpeg()
+            screenshot = None
             
+            # Try active framebuffer first
+            if self.active_framebuffer:
+                screenshot = self.capture_from_framebuffer(self.active_framebuffer)
+            
+            # Try FFmpeg if framebuffer failed
             if screenshot is None:
-                # Fallback to test pattern
+                screenshot = self.capture_screen_ffmpeg()
+            
+            # Fallback to test pattern
+            if screenshot is None:
                 screenshot = self.create_dynamic_test_pattern()
             
             if screenshot is None:
@@ -246,9 +294,11 @@ class FFmpegMirror:
     
     def mirror_loop(self):
         """Main mirroring loop"""
-        print("Starting FFmpeg live mirror...")
+        print("Starting smart live mirror...")
         print(f"Capture interval: {CAPTURE_INTERVAL*1000:.0f}ms")
         print(f"Target resolution: {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT}")
+        if self.active_framebuffer:
+            print(f"Using framebuffer: {self.active_framebuffer}")
         print("Press Ctrl+C to stop")
         
         self.running = True
@@ -258,7 +308,6 @@ class FFmpegMirror:
             while self.running:
                 current_time = time.time()
                 
-                # Check if it's time for next capture
                 if current_time - self.last_capture_time >= CAPTURE_INTERVAL:
                     success = self.update_projector()
                     self.last_capture_time = current_time
@@ -270,30 +319,31 @@ class FFmpegMirror:
                     else:
                         print(f"\rFrame {self.frame_count} failed", end="", flush=True)
                 
-                # Small sleep to prevent CPU overload
                 time.sleep(0.01)
                 
         except KeyboardInterrupt:
-            print("\nStopping FFmpeg mirror...")
+            print("\nStopping smart mirror...")
         finally:
             self.running = False
     
     def start(self):
-        """Start the FFmpeg mirror"""
+        """Start the smart mirror"""
         if not self.check_dependencies():
             return False
         
-        print("GM12U320 FFmpeg Live Mirror")
-        print("============================")
-        print("This will capture screen using FFmpeg and show on projector")
+        print("GM12U320 Smart Live Mirror")
+        print("===========================")
+        print("This will automatically detect and capture the active screen")
         print("Press Ctrl+C to stop")
+        
+        # Find active framebuffer
+        self.active_framebuffer = self.find_active_framebuffer()
         
         try:
             self.mirror_loop()
         except Exception as e:
             print(f"Error in mirror loop: {e}")
         finally:
-            # Cleanup
             try:
                 os.remove("/tmp/gm12u320_image.rgb")
                 print("Cleanup complete")
@@ -303,7 +353,7 @@ class FFmpegMirror:
         return True
 
 def main():
-    mirror = FFmpegMirror()
+    mirror = SmartMirror()
     return 0 if mirror.start() else 1
 
 if __name__ == "__main__":
