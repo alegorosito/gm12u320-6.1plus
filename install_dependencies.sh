@@ -9,37 +9,78 @@ echo "========================================================"
 if ! command -v python3 &> /dev/null; then
     echo "❌ Python 3 not found. Installing..."
     sudo apt update
-    sudo apt install -y python3 python3-pip
+    sudo apt install -y python3 python3-pip python3-venv
 fi
 
 echo "✅ Python 3 found: $(python3 --version)"
 
-# Install required Python packages
-echo "📦 Installing required packages..."
+# Create virtual environment
+VENV_DIR="gm12u320_env"
+echo "📦 Creating virtual environment in $VENV_DIR..."
 
-# Install requests for HTTP requests
+if [ -d "$VENV_DIR" ]; then
+    echo "Virtual environment already exists, removing..."
+    rm -rf "$VENV_DIR"
+fi
+
+python3 -m venv "$VENV_DIR"
+
+if [ ! -d "$VENV_DIR" ]; then
+    echo "❌ Failed to create virtual environment"
+    echo "Trying to install python3-venv..."
+    sudo apt update
+    sudo apt install -y python3-venv
+    python3 -m venv "$VENV_DIR"
+fi
+
+echo "✅ Virtual environment created"
+
+# Activate virtual environment and install packages
+echo "📦 Installing required packages in virtual environment..."
+
+source "$VENV_DIR/bin/activate"
+
+# Install required packages
+pip install --upgrade pip
+
 echo "Installing requests..."
-pip3 install requests
+pip install requests
 
-# Install Pillow for image processing
 echo "Installing Pillow..."
-pip3 install Pillow
+pip install Pillow
 
-# Install numpy for array operations
 echo "Installing numpy..."
-pip3 install numpy
+pip install numpy
 
-# Install mss for screen capture
 echo "Installing mss..."
-pip3 install mss
+pip install mss
 
-echo ""
-echo "✅ All dependencies installed successfully!"
-echo ""
-echo "🚀 Usage:"
-echo "  python3 show_image.py                    # Use default image"
-echo "  python3 show_image.py <image_url>        # Use custom image URL"
-echo "  python3 live_mirror.py                   # Live screen mirror"
+# Create activation script
+cat > activate_env.sh << 'EOF'
+#!/bin/bash
+echo "🐍 Activating GM12U320 Python environment..."
+source gm12u320_env/bin/activate
+echo "✅ Environment activated!"
+echo "🚀 Now you can run:"
+echo "  python show_image.py                    # Use default image"
+echo "  python show_image.py <image_url>        # Use custom image URL"
+echo "  python live_mirror.py                   # Live screen mirror"
 echo ""
 echo "📝 Example:"
-echo "  python3 show_image.py https://picsum.photos/id/1/800/600" 
+echo "  python show_image.py https://picsum.photos/id/1/800/600"
+echo ""
+echo "💡 To deactivate: deactivate"
+EOF
+
+chmod +x activate_env.sh
+
+echo ""
+echo "✅ All dependencies installed successfully in virtual environment!"
+echo ""
+echo "🚀 To use the projector scripts:"
+echo "  1. Activate environment: source activate_env.sh"
+echo "  2. Run scripts: python show_image.py"
+echo ""
+echo "📝 Or run directly:"
+echo "  ./gm12u320_env/bin/python show_image.py"
+echo "  ./gm12u320_env/bin/python live_mirror.py" 
