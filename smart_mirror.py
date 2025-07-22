@@ -272,21 +272,25 @@ class SmartMirror:
     def write_to_file(self, data, filename="/tmp/gm12u320_image.rgb"):
         """Write data to file with validation"""
         try:
+            print(f"📝 Writing {len(data)} bytes to {filename}...")
+            
             with open(filename, 'wb') as f:
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
             
             file_size = os.path.getsize(filename)
+            print(f"📊 File size after write: {file_size} bytes")
             
             if file_size == TOTAL_FILE_SIZE:
+                print(f"✅ File size validation: PASSED ({file_size} bytes)")
                 return True
             else:
-                print(f"File size validation: FAILED (expected {TOTAL_FILE_SIZE}, got {file_size})")
+                print(f"❌ File size validation: FAILED (expected {TOTAL_FILE_SIZE}, got {file_size})")
                 return False
                 
         except Exception as e:
-            print(f"Error writing to file: {e}")
+            print(f"❌ Error writing to file: {e}")
             return False
     
     def update_projector(self):
@@ -295,35 +299,50 @@ class SmartMirror:
             screenshot = None
             
             # Try simple capture methods
+            print("🔄 Step 1: Capturing screen...")
             screenshot = self.capture_screen_simple()
             
             # Fallback to test pattern if all methods fail
             if screenshot is None:
-                print("Using test pattern as fallback")
+                print("⚠️ Using test pattern as fallback")
                 screenshot = self.create_dynamic_test_pattern()
             
             if screenshot is None:
+                print("❌ Failed to get screenshot")
                 return False
+            
+            print(f"✅ Screenshot captured: {screenshot.size[0]}x{screenshot.size[1]}")
             
             # Resize to projector resolution
+            print("🔄 Step 2: Resizing to projector resolution...")
             resized = self.resize_image(screenshot, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
             if resized is None:
+                print("❌ Failed to resize image")
                 return False
+            
+            print(f"✅ Image resized to: {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT}")
             
             # Convert to RGB buffer
+            print("🔄 Step 3: Converting to RGB buffer...")
             buffer = self.create_rgb_buffer_with_stride(resized)
             if buffer is None:
+                print("❌ Failed to create RGB buffer")
                 return False
+            
+            print(f"✅ RGB buffer created: {len(buffer)} bytes")
             
             # Write to file
+            print("🔄 Step 4: Writing to projector file...")
             if not self.write_to_file(buffer):
+                print("❌ Failed to write to file")
                 return False
             
+            print("✅ File written successfully")
             self.frame_count += 1
             return True
             
         except Exception as e:
-            print(f"Error updating projector: {e}")
+            print(f"❌ Error updating projector: {e}")
             return False
     
     def mirror_loop(self):
