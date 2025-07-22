@@ -176,28 +176,36 @@ def resize_image(image, target_width, target_height):
         return None
 
 def image_to_rgb_array(image):
-    """Convert PIL image to RGB byte array for GM12U320 projector"""
+    """
+    Convert PIL image to properly aligned byte array for GM12U320 projector.
+    Ensures it’s in BGR format if required.
+    """
     try:
         # Convert to RGB if needed
         if image.mode != 'RGB':
             image = image.convert('RGB')
         
-        # Convert to numpy array
         array = np.array(image, dtype=np.uint8)
+
+        # Si el proyector espera BGR, descomenta la siguiente línea:
+        array = array[:, :, ::-1]
+
+        # Por seguridad, asegúrate de que no hay padding en las filas.
+        # Si el driver espera que cada fila sea múltiplo de 4 bytes:
+        h, w, c = array.shape
+        row_size = w * c
+        pad = (4 - (row_size % 4)) % 4
         
-        # Ensure the array is in the correct shape and format
-        if len(array.shape) != 3 or array.shape[2] != 3:
-            print(f"❌ Invalid image format: shape={array.shape}")
-            return None
+        if pad != 0:
+            padded = np.zeros((h, w*c + pad), dtype=np.uint8)
+            for y in range(h):
+                padded[y, :row_size] = array[y].flatten()
+            print(f"✅ Image padded: {pad} bytes per row to align")
+            return padded.tobytes()
+        else:
+            print("✅ Image has correct row size, no padding needed")
+            return array.tobytes()
         
-        # The driver expects RGB format directly (no BGR conversion needed)
-        # Just flatten the array to bytes
-        rgb_bytes = array.tobytes()
-        
-        print(f"✅ Image converted to RGB bytes: {len(rgb_bytes)} bytes")
-        print(f"   Image shape: {array.shape}")
-        print(f"   Expected bytes: {array.shape[0] * array.shape[1] * 3}")
-        return rgb_bytes
     except Exception as e:
         print(f"❌ Error converting image to RGB: {e}")
         return None
