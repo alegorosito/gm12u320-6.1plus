@@ -1,139 +1,107 @@
-# fine_tune.py
+#!/usr/bin/env python3
+"""
+GM12U320 Fine-tuning Script
+===========================
 
-import requests, numpy as np, io, time, sys, os, datetime
+🔍 Probar automáticamente combinaciones de:
+- Resolución (640×480, 800×600, 1024×768)
+- Stride (mínimo y múltiplos de 64)
+- swap_bgr (False/True)
+- resize_mode (Exact-fit/Aspect-fit)
+
+Guarda resultados en: gm12u320_finetune.log
+"""
+
+import requests, numpy as np, io, sys, os, time, datetime
 from PIL import Image
 
-PROJECTOR_BYTES_PER_PIXEL = 3
 LOG_FILE = "gm12u320_finetune.log"
-DEFAULT_DEVICE = "/tmp/gm12u320_image.rgb"
 
-BEST_CONFIGS = [
-    {"w":800,"h":600,"stride":2560,"swap":True,"mode":"Exact-fit"},
-    {"w":640,"h":480,"stride":2048,"swap":True,"mode":"Exact-fit"},
-    {"w":800,"h":600,"stride":2560,"swap":False,"mode":"Exact-fit"},
-    {"w":800,"h":600,"stride":2816,"swap":True,"mode":"Exact-fit"},
-]
-
-STRIDE_FACTORS = [0.8, 0.9, 1.0, 1.1, 1.2]
-RES_OFFSETS = [-100, 0, 100]
-
+RESOLUTIONS = [(640, 480), (800, 600), (1024, 768)]
+MODES = ["Exact-fit", "Aspect-fit"]
 
 def log(msg):
     print(msg)
     with open(LOG_FILE, "a") as f:
         f.write(f"{datetime.datetime.now()}: {msg}\n")
 
-
-def load_image(src):
-    try:
-        if os.path.exists(src):
-            log(f"📂 Local image: {src}")
-            return Image.open(src)
-        elif src.startswith(('http://','https://')):
-            log(f"📥 Downloading image: {src}")
-            r = requests.get(src, timeout=10)
-            r.raise_for_status()
-            return Image.open(io.BytesIO(r.content))
-        else:
-            log(f"❌ Invalid image: {src}")
-            return None
-    except Exception as e:
-        log(f"❌ Error loading image: {e}")
-        return None
-
+def load_image(image_source):
+    if os.path.exists(image_source):
+        img = Image.open(image_source)
+        log(f"📂 Loaded local image: {image_source}")
+    elif image_source.startswith(('http://', 'https://')):
+        r = requests.get(image_source, timeout=10)
+        r.raise_for_status()
+        img = Image.open(io.BytesIO(r.content))
+        log(f"📥 Downloaded image: {image_source}")
+    else:
+        log("❌ Invalid image source.")
+        sys.exit(1)
+    return img.convert("RGB")
 
 def resize_image(img, w, h, mode):
     if mode == "Exact-fit":
-        return img.resize((w,h), Image.Resampling.LANCZOS)
+        return img.resize((w, h), Image.LANCZOS)
     else:
-        aspect = img.width/img.height
-        target_aspect = w/h
-        if aspect > target_aspect:
-            nw = w
-            nh = int(w/aspect)
-        else:
-            nh = h
-            nw = int(h*aspect)
-        out = Image.new("RGB", (w,h), (0,0,0))
-        tmp = img.resize((nw,nh), Image.Resampling.LANCZOS)
-        out.paste(tmp, ((w-nw)//2, (h-nh)//2))
-        return out
+        img_w, img_h = img.size
+        ratio = min(w/img_w, h/img_h)
+        new_w, new_h = int(img_w*ratio), int(img_h*ratio)
+        resized = Image.new("RGB", (w,h), (0,0,0))
+        tmp = img.resize((new_w, new_h), Image.LANCZOS)
+        x, y = (w-new_w)//2, (h-new_h)//2
+        resized.paste(tmp, (x,y))
+        return resized
 
+def compute_strides(w):
+    base = w*3
+    strides = []
+    for mult in range(1,6):
+        s = ((base + 63)//64)*64 + (mult-1)*64
+        strides.append(s)
+    return strides
 
-def image_to_rgb_array_with_stride(img, stride, swap):
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+def image_to_bytes(img, stride, swap_bgr):
     arr = np.array(img)
-    if swap:
+    if swap_bgr:
         arr = arr[:,:,::-1]
     h,w,_ = arr.shape
     line_bytes = w*3
-    pad = stride-line_bytes if stride>line_bytes else 0
+    pad = stride - line_bytes
     buf = bytearray()
     for y in range(h):
-        buf += arr[y,:,:].tobytes()
+        buf += arr[y].tobytes()
         buf += b'\x00'*pad
     return bytes(buf)
 
+def write_image(data, path="/tmp/gm12u320_image.rgb"):
+    with open(path, "wb") as f:
+        f.write(data)
 
-def write_image_to_file(rgb, path=DEFAULT_DEVICE):
-    with open(path,"wb") as f:
-        f.write(rgb)
-        f.flush()
-        os.fsync(f.fileno())
+def run_tests(image_source):
+    img = load_image(image_source)
+    log("🧪 Starting fine-tune tests…")
+    combinations = []
+    for (w,h) in RESOLUTIONS:
+        strides = compute_strides(w)
+        for mode in MODES:
+            resized = resize_image(img,w,h,mode)
+            for stride in strides:
+                for swap in [False, True]:
+                    combinations.append( (w,h,stride,swap,mode,resized) )
 
+    for idx,(w,h,stride,swap,mode,resized) in enumerate(combinations,1):
+        log(f"🔷 Test {idx}: {w}x{h} stride={stride} swap_bgr={swap} mode={mode}")
+        data = image_to_bytes(resized,stride,swap)
+        write_image(data)
+        log(f"✅ Image written: {len(data)} bytes.")
+        log("⌛ Observe projector output.")
+        time.sleep(5)
 
-def cleanup():
-    try:
-        os.remove(DEFAULT_DEVICE)
-        log("🧹 Removed temp image file.")
-    except:
-        pass
-
-
-def check_projector():
-    if not os.path.exists('/dev/dri/card2'):
-        log("❌ Projector /dev/dri/card2 not found.")
-        return False
-    log("✅ Projector detected.")
-    return True
-
+    log("🎯 Fine-tune tests completed.")
+    print("\n✅ Finished all tests. Check gm12u320_finetune.log for details.")
 
 if __name__ == "__main__":
-
-    if len(sys.argv)<2:
-        print("Usage: python3 fine_tune.py <image>")
+    if len(sys.argv) < 2:
+        print("❌ Usage: python3 show_image_finetune.py <image>")
         sys.exit(1)
-
-    if not check_projector():
-        sys.exit(1)
-
-    img = load_image(sys.argv[1])
-    if img is None:
-        sys.exit(1)
-
-    idx = 1
-
-    for base in BEST_CONFIGS:
-        for sf in STRIDE_FACTORS:
-            for dx in RES_OFFSETS:
-                for dy in RES_OFFSETS:
-                    w = max(100, base["w"]+dx)
-                    h = max(100, base["h"]+dy)
-                    stride = int(base["stride"]*sf)
-                    swap = base["swap"]
-                    mode = base["mode"]
-
-                    log(f"[{idx}] Testing w={w} h={h} stride={stride} swap={swap} mode={mode}")
-
-                    resized = resize_image(img,w,h,mode)
-                    rgb = image_to_rgb_array_with_stride(resized,stride,swap)
-                    if rgb:
-                        write_image_to_file(rgb)
-                        log("🔎 Observe projector.")
-                        time.sleep(5)
-                    idx+=1
-
-    cleanup()
-    log("✅ Fine-tune tests complete.")
-    print("✅ Done. Review log in gm12u320_finetune.log")
+    run_tests(sys.argv[1])
