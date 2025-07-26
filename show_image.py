@@ -2,7 +2,13 @@
 """
 GM12U320 Projector Image Display Script
 Handles 800x600 resolution with 2562 byte stride (2400 data + 162 padding)
-Can display images from file, URL, or capture screen
+Can display images from file, URL, or capture screen continuously
+
+Requirements:
+- PIL (Pillow) with ImageGrab support
+- On Linux: may need additional packages for screen capture
+- On macOS: requires screen recording permissions
+- On Windows: should work out of the box
 """
 
 import numpy as np
@@ -10,7 +16,7 @@ import os
 import sys
 import time
 import subprocess
-from PIL import Image
+from PIL import Image, ImageGrab
 import requests
 import io
 
@@ -58,7 +64,7 @@ def resize_image(image, target_width, target_height):
         print(f"Error resizing image: {e}")
         return None
 
-def create_rgb_buffer_with_stride(image):
+def create_rgb_buffer_with_stride(image, verbose=True):
     """Convert PIL image to RGB buffer with proper stride and padding"""
     try:
         # Convert to RGB if needed
@@ -81,12 +87,13 @@ def create_rgb_buffer_with_stride(image):
             # Add padding bytes to reach stride
             buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
         
-        print(f"Buffer created: {len(buffer)} bytes")
-        print(f"Expected size: {TOTAL_FILE_SIZE} bytes")
-        print(f"Data bytes per line: {DATA_BYTES_PER_LINE}")
-        print(f"Padding bytes per line: {PADDING_BYTES_PER_LINE}")
-        print(f"Total stride per line: {STRIDE_BYTES_PER_LINE}")
-        print(f"Color order: BGR (test 2)")
+        if verbose:
+            print(f"Buffer created: {len(buffer)} bytes")
+            print(f"Expected size: {TOTAL_FILE_SIZE} bytes")
+            print(f"Data bytes per line: {DATA_BYTES_PER_LINE}")
+            print(f"Padding bytes per line: {PADDING_BYTES_PER_LINE}")
+            print(f"Total stride per line: {STRIDE_BYTES_PER_LINE}")
+            print(f"Color order: BGR (test 2)")
         
         return bytes(buffer)
     except Exception as e:
@@ -94,50 +101,11 @@ def create_rgb_buffer_with_stride(image):
         return None
 
 def capture_screen():
-    """Capture screen using Ubuntu tools"""
+    """Capture screen using PIL ImageGrab (cross-platform)"""
     try:
-        print("📸 Capturing screen...")
-        
-        # Try gnome-screenshot first (most reliable on Ubuntu)
-        try:
-            result = subprocess.run(['gnome-screenshot', '-f', '/tmp/temp_screen.jpg', '--no-border'], 
-                                  capture_output=True, timeout=5)
-            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
-                image = Image.open('/tmp/temp_screen.jpg')
-                print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
-                return image
-        except Exception as e:
-            print(f"gnome-screenshot failed: {e}")
-        
-        # Try import command (ImageMagick)
-        try:
-            result = subprocess.run(['import', '-window', 'root', '/tmp/temp_screen.jpg'], 
-                                  capture_output=True, timeout=5)
-            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
-                image = Image.open('/tmp/temp_screen.jpg')
-                print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
-                return image
-        except Exception as e:
-            print(f"import failed: {e}")
-        
-        # Try xwd command
-        try:
-            result = subprocess.run(['xwd', '-root', '-out', '/tmp/temp_screen.xwd'], 
-                                  capture_output=True, timeout=5)
-            if result.returncode == 0 and os.path.exists('/tmp/temp_screen.xwd'):
-                convert_result = subprocess.run(['convert', '/tmp/temp_screen.xwd', '/tmp/temp_screen.jpg'], 
-                                             capture_output=True, timeout=5)
-                if convert_result.returncode == 0 and os.path.exists('/tmp/temp_screen.jpg'):
-                    image = Image.open('/tmp/temp_screen.jpg')
-                    os.remove('/tmp/temp_screen.xwd')
-                    print(f"✅ Screen captured: {image.size[0]}x{image.size[1]}")
-                    return image
-        except Exception as e:
-            print(f"xwd failed: {e}")
-        
-        print("❌ All screen capture methods failed")
-        return None
-        
+        # Capture the entire screen
+        image = ImageGrab.grab()
+        return image
     except Exception as e:
         print(f"❌ Screen capture error: {e}")
         return None
@@ -165,7 +133,7 @@ def create_test_pattern(frame_number=0):
         print(f"Error creating test pattern: {e}")
         return None
 
-def write_to_file(data, filename="/tmp/gm12u320_image.rgb"):
+def write_to_file(data, filename="/tmp/gm12u320_image.rgb", verbose=True):
     """Write data to file with validation"""
     try:
         with open(filename, 'wb') as f:
@@ -175,14 +143,18 @@ def write_to_file(data, filename="/tmp/gm12u320_image.rgb"):
         
         # Validate file size
         file_size = os.path.getsize(filename)
-        print(f"File written: {filename}")
-        print(f"File size: {file_size} bytes")
+        
+        if verbose:
+            print(f"File written: {filename}")
+            print(f"File size: {file_size} bytes")
         
         if file_size == TOTAL_FILE_SIZE:
-            print("File size validation: PASSED")
+            if verbose:
+                print("File size validation: PASSED")
             return True
         else:
-            print(f"File size validation: FAILED (expected {TOTAL_FILE_SIZE}, got {file_size})")
+            if verbose:
+                print(f"File size validation: FAILED (expected {TOTAL_FILE_SIZE}, got {file_size})")
             return False
             
     except Exception as e:
@@ -201,9 +173,23 @@ def main():
     
     print("Projector device found: /dev/dri/card2")
     
+    # Show usage if no arguments provided
+    if len(sys.argv) == 1:
+        print("\nUsage:")
+        print("  python3 show_image.py [FPS] [source]")
+        print("\nExamples:")
+        print("  python3 show_image.py 10 live          # Live screen capture at 10 FPS")
+        print("  python3 show_image.py 15 continuous    # Live screen capture at 15 FPS")
+        print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
+        print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
+        print("  python3 show_image.py                  # Test pattern at 10 FPS")
+        print("\nPress Ctrl+C to stop")
+        print()
+    
     # Parse command line arguments
     fps = 10  # Default FPS
     image_source = None
+    continuous_capture = False
     
     if len(sys.argv) > 1:
         # Check if first argument is FPS
@@ -225,10 +211,14 @@ def main():
     frame_interval = 1.0 / fps
     print(f"Frame interval: {frame_interval:.3f} seconds")
     
-    # Get image source
-    if image_source:
+    # Check for continuous capture mode
+    if image_source == "live" or image_source == "continuous":
+        continuous_capture = True
+        print("🎥 Continuous screen capture mode enabled")
+        print(f"📸 Capturing screen at {fps} FPS")
+    elif image_source:
         if image_source == "screen" or image_source == "capture":
-            print("Capturing screen for projector")
+            print("Capturing single screen for projector")
             image = capture_screen()
         elif os.path.exists(image_source):
             print(f"Using local image file: {image_source}")
@@ -238,7 +228,12 @@ def main():
             image = download_image(image_source)
         else:
             print(f"Invalid image source: {image_source}")
-            print("Use 'screen' to capture screen, or provide file path/URL")
+            print("Usage examples:")
+            print("  python3 show_image.py 10 live          # Live capture at 10 FPS")
+            print("  python3 show_image.py 15 continuous    # Live capture at 15 FPS")
+            print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
+            print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
+            print("  python3 show_image.py                  # Test pattern at 10 FPS")
             image = None
             
         if image is None:
@@ -273,23 +268,59 @@ def main():
         while True:
             frame_start = time.time()
             
-            if use_static_image:
+            if continuous_capture:
+                # Capture screen continuously
+                image = capture_screen()
+                if image is not None:
+                    # Resize to projector resolution
+                    resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+                    if resized_image is not None:
+                        # Convert to RGB buffer with stride (quiet mode for continuous capture)
+                        data = create_rgb_buffer_with_stride(resized_image, verbose=False)
+                    else:
+                        data = None
+                else:
+                    data = None
+                    
+                if data:
+                    # Write to file (quiet mode for continuous capture)
+                    if write_to_file(data, verbose=False):
+                        frame_count += 1
+                        
+                        # Calculate and display stats every 10 frames
+                        if frame_count % 10 == 0:
+                            elapsed = time.time() - start_time
+                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s | Screen: {image.size[0]}x{image.size[1]}")
+                else:
+                    print("⚠️  Screen capture failed, skipping frame")
+                    
+            elif use_static_image:
                 # Use static image
                 data = static_data
+                if data:
+                    # Write to file
+                    if write_to_file(data):
+                        frame_count += 1
+                        
+                        # Calculate and display stats every 10 frames
+                        if frame_count % 10 == 0:
+                            elapsed = time.time() - start_time
+                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
             else:
                 # Create animated test pattern
                 data = create_test_pattern(frame_count)
-            
-            if data:
-                # Write to file
-                if write_to_file(data):
-                    frame_count += 1
-                    
-                    # Calculate and display stats every 10 frames
-                    if frame_count % 10 == 0:
-                        elapsed = time.time() - start_time
-                        actual_fps = frame_count / elapsed if elapsed > 0 else 0
-                        print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
+                if data:
+                    # Write to file
+                    if write_to_file(data):
+                        frame_count += 1
+                        
+                        # Calculate and display stats every 10 frames
+                        if frame_count % 10 == 0:
+                            elapsed = time.time() - start_time
+                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
             
             # Calculate sleep time to maintain FPS
             frame_time = time.time() - frame_start
@@ -303,7 +334,10 @@ def main():
         try:
             os.remove("/tmp/temp_screen.jpg")
             os.remove("/tmp/gm12u320_image.rgb")
-            print("Image files removed, projector will show test pattern")
+            if continuous_capture:
+                print("Live capture stopped, projector will show test pattern")
+            else:
+                print("Image files removed, projector will show test pattern")
         except:
             pass
         
@@ -311,6 +345,8 @@ def main():
         total_time = time.time() - start_time
         final_fps = frame_count / total_time if total_time > 0 else 0
         print(f"Final stats: {frame_count} frames in {total_time:.1f}s = {final_fps:.1f} FPS")
+        if continuous_capture:
+            print("Live screen capture completed")
         return 0
 
 if __name__ == "__main__":
