@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 GM12U320 Projector Image Display Script
-Handles 800x600 resolution with 2562 byte stride (2400 data + 162 padding)
+Supports 800x600 and 1024x768 resolutions with proper stride handling
 Can display images from file, URL, or capture screen continuously
 
 Requirements:
@@ -20,14 +20,61 @@ from PIL import Image, ImageGrab
 import requests
 import io
 
-# Projector specifications
-PROJECTOR_WIDTH = 800
-PROJECTOR_HEIGHT = 600
+# Resolution configurations
+RESOLUTIONS = {
+    '800x600': {
+        'width': 800,
+        'height': 600,
+        'stride': 2562,  # 2400 data + 162 padding
+        'data_bytes_per_line': 2400,
+        'padding_bytes_per_line': 162,
+        'total_size': 1537200
+    },
+    '1024x768': {
+        'width': 1024,
+        'height': 768,
+        'stride': 3072,  # 3072 data + 0 padding (aligned)
+        'data_bytes_per_line': 3072,
+        'padding_bytes_per_line': 0,
+        'total_size': 2359296
+    }
+}
+
+# Default resolution
+DEFAULT_RESOLUTION = '800x600'
 BYTES_PER_PIXEL = 3
-DATA_BYTES_PER_LINE = PROJECTOR_WIDTH * BYTES_PER_PIXEL  # 2400 bytes
-STRIDE_BYTES_PER_LINE = 2562  # 2400 data + 162 padding (optimized)
-PADDING_BYTES_PER_LINE = STRIDE_BYTES_PER_LINE - DATA_BYTES_PER_LINE  # 162 bytes
-TOTAL_FILE_SIZE = STRIDE_BYTES_PER_LINE * PROJECTOR_HEIGHT  # 1,537,200 bytes
+
+# Global resolution settings (will be set by command line)
+PROJECTOR_WIDTH = RESOLUTIONS[DEFAULT_RESOLUTION]['width']
+PROJECTOR_HEIGHT = RESOLUTIONS[DEFAULT_RESOLUTION]['height']
+STRIDE_BYTES_PER_LINE = RESOLUTIONS[DEFAULT_RESOLUTION]['stride']
+DATA_BYTES_PER_LINE = RESOLUTIONS[DEFAULT_RESOLUTION]['data_bytes_per_line']
+PADDING_BYTES_PER_LINE = RESOLUTIONS[DEFAULT_RESOLUTION]['padding_bytes_per_line']
+TOTAL_FILE_SIZE = RESOLUTIONS[DEFAULT_RESOLUTION]['total_size']
+
+def set_resolution(resolution_name):
+    """Set the global resolution settings"""
+    global PROJECTOR_WIDTH, PROJECTOR_HEIGHT, STRIDE_BYTES_PER_LINE
+    global DATA_BYTES_PER_LINE, PADDING_BYTES_PER_LINE, TOTAL_FILE_SIZE
+    
+    if resolution_name not in RESOLUTIONS:
+        print(f"Invalid resolution: {resolution_name}")
+        print(f"Available resolutions: {', '.join(RESOLUTIONS.keys())}")
+        return False
+    
+    config = RESOLUTIONS[resolution_name]
+    PROJECTOR_WIDTH = config['width']
+    PROJECTOR_HEIGHT = config['height']
+    STRIDE_BYTES_PER_LINE = config['stride']
+    DATA_BYTES_PER_LINE = config['data_bytes_per_line']
+    PADDING_BYTES_PER_LINE = config['padding_bytes_per_line']
+    TOTAL_FILE_SIZE = config['total_size']
+    
+    print(f"Resolution set to: {resolution_name}")
+    print(f"Dimensions: {PROJECTOR_WIDTH}x{PROJECTOR_HEIGHT}")
+    print(f"Stride: {STRIDE_BYTES_PER_LINE} bytes per line")
+    print(f"Total file size: {TOTAL_FILE_SIZE} bytes")
+    return True
 
 def load_image_from_path(image_path):
     """Load image from local file path"""
@@ -102,14 +149,44 @@ def create_rgb_buffer_with_stride(image, verbose=True):
         return None
 
 def capture_screen():
-    """Capture screen using PIL ImageGrab (cross-platform)"""
+    """Capture screen using PIL ImageGrab (cross-platform) - IMPROVED"""
     try:
         # Capture the entire screen
         image = ImageGrab.grab()
+        
+        # Validate the captured image
+        if image is None or image.size[0] == 0 or image.size[1] == 0:
+            print("⚠️  Screen capture returned invalid image")
+            return None
+            
+        # Check if image has valid dimensions
+        if image.size[0] < 100 or image.size[1] < 100:
+            print(f"⚠️  Screen capture returned suspicious size: {image.size}")
+            return None
+            
         return image
+        
     except Exception as e:
         print(f"❌ Screen capture error: {e}")
         return None
+
+def capture_screen_with_retry(max_retries=3):
+    """Capture screen with retry logic for better reliability"""
+    for attempt in range(max_retries):
+        try:
+            image = capture_screen()
+            if image is not None:
+                return image
+            else:
+                print(f"⚠️  Capture attempt {attempt + 1} failed, retrying...")
+                time.sleep(0.1)  # Short delay before retry
+        except Exception as e:
+            print(f"⚠️  Capture attempt {attempt + 1} error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(0.1)
+    
+    print("❌ All screen capture attempts failed")
+    return None
 
 def monitor_performance(frame_count, start_time, image_size=None):
     """Monitor and display performance statistics"""
@@ -148,6 +225,22 @@ def create_test_pattern(frame_number=0):
         return output_buffer.tobytes()
     except Exception as e:
         print(f"Error creating test pattern: {e}")
+        return None
+
+def create_error_pattern(frame_number=0):
+    """Create a simple error pattern for when screen capture fails."""
+    try:
+        output_buffer = np.zeros((PROJECTOR_HEIGHT, STRIDE_BYTES_PER_LINE), dtype=np.uint8)
+        
+        # Create a simple red pattern
+        for y in range(PROJECTOR_HEIGHT):
+            output_buffer[y, 0:DATA_BYTES_PER_LINE:3] = 255 # Red
+            output_buffer[y, 1:DATA_BYTES_PER_LINE:3] = 0   # Green
+            output_buffer[y, 2:DATA_BYTES_PER_LINE:3] = 0   # Blue
+        
+        return output_buffer.tobytes()
+    except Exception as e:
+        print(f"Error creating error pattern: {e}")
         return None
 
 def write_to_file(data, filename="/tmp/gm12u320_image.rgb", verbose=True):
@@ -194,20 +287,23 @@ def main():
     # Show usage if no arguments provided
     if len(sys.argv) == 1:
         print("\nUsage:")
-        print("  python3 show_image.py [FPS] [source]")
+        print("  python3 show_image.py [FPS] [source] [resolution]")
         print("\nExamples:")
-        print("  python3 show_image.py 24 live          # Live screen capture at 24 FPS (recommended)")
-        print("  python3 show_image.py 30 continuous    # Live screen capture at 30 FPS")
-        print("  python3 show_image.py 24 fast          # Performance mode at 24 FPS")
-        print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
-        print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
-        print("  python3 show_image.py                  # Test pattern at 10 FPS")
-        print("\nPress Ctrl+C to stop")
+        print("  python3 show_image.py 24 live 800x600     # Live capture at 24 FPS, 800x600")
+        print("  python3 show_image.py 30 live 1024x768    # Live capture at 30 FPS, 1024x768")
+        print("  python3 show_image.py 24 fast             # Performance mode at 24 FPS")
+        print("  python3 show_image.py 10 screen           # Single screen capture")
+        print("  python3 show_image.py 10 image.jpg        # Static image")
+        print("  python3 show_image.py                     # Test pattern")
+        print("\nAvailable resolutions: 800x600, 1024x768")
+        print("Note: 1024x768 requires more processing power but provides higher resolution")
+        print("Press Ctrl+C to stop")
         print()
     
     # Parse command line arguments
     fps = 10  # Default FPS
     image_source = None
+    resolution = DEFAULT_RESOLUTION
     continuous_capture = False
     performance_mode = False
     
@@ -220,12 +316,20 @@ def main():
                 return 1
             print(f"Using FPS: {fps}")
             
-            # Check if second argument is image source
+            # Check for additional arguments
             if len(sys.argv) > 2:
                 image_source = sys.argv[2]
+            if len(sys.argv) > 3:
+                resolution = sys.argv[3]
         except ValueError:
             # First argument is not FPS, treat as image source
             image_source = sys.argv[1]
+            if len(sys.argv) > 2:
+                resolution = sys.argv[2]
+    
+    # Set resolution
+    if not set_resolution(resolution):
+        return 1
     
     # Calculate frame interval
     frame_interval = 1.0 / fps
@@ -255,12 +359,12 @@ def main():
         else:
             print(f"Invalid image source: {image_source}")
             print("Usage examples:")
-            print("  python3 show_image.py 24 live          # Live capture at 24 FPS (recommended)")
-            print("  python3 show_image.py 30 continuous    # Live capture at 30 FPS")
-            print("  python3 show_image.py 24 fast          # Performance mode at 24 FPS")
-            print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
-            print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
-            print("  python3 show_image.py                  # Test pattern at 10 FPS")
+            print("  python3 show_image.py 24 live 800x600     # Live capture at 24 FPS, 800x600")
+            print("  python3 show_image.py 30 live 1024x768    # Live capture at 30 FPS, 1024x768")
+            print("  python3 show_image.py 24 fast             # Performance mode at 24 FPS")
+            print("  python3 show_image.py 10 screen           # Single screen capture")
+            print("  python3 show_image.py 10 image.jpg        # Static image")
+            print("  python3 show_image.py                     # Test pattern")
             image = None
             
         if image is None:
@@ -296,8 +400,8 @@ def main():
             frame_start = time.time()
             
             if continuous_capture:
-                # Capture screen continuously - OPTIMIZED
-                image = capture_screen()
+                # Capture screen continuously - IMPROVED with retry logic
+                image = capture_screen_with_retry(max_retries=2)
                 if image is not None:
                     # Resize to projector resolution
                     resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
@@ -312,13 +416,22 @@ def main():
                                 # Calculate and display stats every 10 frames
                                 if frame_count % 10 == 0:
                                     monitor_performance(frame_count, start_time, image.size)
+                            else:
+                                print("⚠️  File write failed, retrying next frame")
                         else:
-                            print("⚠️  Buffer creation failed, skipping frame")
+                            print("⚠️  Buffer creation failed, retrying next frame")
                     else:
-                        print("⚠️  Image resize failed, skipping frame")
+                        print("⚠️  Image resize failed, retrying next frame")
                 else:
-                    print("⚠️  Screen capture failed, skipping frame")
-                    
+                    # If all capture attempts fail, show a brief error pattern instead of test pattern
+                    print("⚠️  Screen capture failed, showing error pattern")
+                    error_data = create_error_pattern(frame_count)
+                    if error_data and write_to_file(error_data, verbose=False):
+                        frame_count += 1
+                        
+                        # Calculate and display stats every 10 frames
+                        if frame_count % 10 == 0:
+                            monitor_performance(frame_count, start_time)
             elif use_static_image:
                 # Use static image - OPTIMIZED
                 data = static_data
