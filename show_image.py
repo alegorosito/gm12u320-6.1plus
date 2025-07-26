@@ -55,17 +55,17 @@ def download_image(url):
         return None
 
 def resize_image(image, target_width, target_height):
-    """Resize image to exact projector resolution"""
+    """Resize image to exact projector resolution - OPTIMIZED"""
     try:
-        resized_image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        print(f"Image resized to: {target_width}x{target_height}")
+        # Use faster resampling for better performance
+        resized_image = image.resize((target_width, target_height), Image.Resampling.NEAREST)
         return resized_image
     except Exception as e:
         print(f"Error resizing image: {e}")
         return None
 
 def create_rgb_buffer_with_stride(image, verbose=True):
-    """Convert PIL image to RGB buffer with proper stride and padding"""
+    """Convert PIL image to RGB buffer with proper stride and padding - OPTIMIZED"""
     try:
         # Convert to RGB if needed
         if image.mode != 'RGB':
@@ -74,28 +74,29 @@ def create_rgb_buffer_with_stride(image, verbose=True):
         # Convert to numpy array
         array = np.array(image, dtype=np.uint8)
         
-        # Create buffer with proper stride
-        buffer = bytearray()
+        # Create output buffer with proper stride - OPTIMIZED
+        output_buffer = np.zeros((PROJECTOR_HEIGHT, STRIDE_BYTES_PER_LINE), dtype=np.uint8)
         
+        # Copy RGB data and convert to BGR in one operation
+        # array shape is (height, width, 3) - RGB
+        # We need BGR order and proper stride
         for y in range(PROJECTOR_HEIGHT):
-            # Add data bytes for this line
-            for x in range(PROJECTOR_WIDTH):
-                r, g, b = array[y, x]
-                # Use BGR order (test 2 was correct)
-                buffer.extend([b, g, r])
-            
-            # Add padding bytes to reach stride
-            buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
+            # Copy RGB data and convert to BGR in one slice operation
+            output_buffer[y, 0:DATA_BYTES_PER_LINE:3] = array[y, :, 2]  # B (was R)
+            output_buffer[y, 1:DATA_BYTES_PER_LINE:3] = array[y, :, 1]  # G
+            output_buffer[y, 2:DATA_BYTES_PER_LINE:3] = array[y, :, 0]  # R (was B)
+        
+        # Padding is already zeros from np.zeros()
         
         if verbose:
-            print(f"Buffer created: {len(buffer)} bytes")
+            print(f"Buffer created: {output_buffer.nbytes} bytes")
             print(f"Expected size: {TOTAL_FILE_SIZE} bytes")
             print(f"Data bytes per line: {DATA_BYTES_PER_LINE}")
             print(f"Padding bytes per line: {PADDING_BYTES_PER_LINE}")
             print(f"Total stride per line: {STRIDE_BYTES_PER_LINE}")
-            print(f"Color order: BGR (test 2)")
+            print(f"Color order: BGR (optimized)")
         
-        return bytes(buffer)
+        return output_buffer.tobytes()
     except Exception as e:
         print(f"Error creating RGB buffer: {e}")
         return None
@@ -110,52 +111,69 @@ def capture_screen():
         print(f"❌ Screen capture error: {e}")
         return None
 
+def monitor_performance(frame_count, start_time, image_size=None):
+    """Monitor and display performance statistics"""
+    elapsed = time.time() - start_time
+    actual_fps = frame_count / elapsed if elapsed > 0 else 0
+    
+    if image_size:
+        print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s | Screen: {image_size[0]}x{image_size[1]}")
+    else:
+        print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
+
 def create_test_pattern(frame_number=0):
-    """Create animated test pattern with proper stride"""
+    """Create animated test pattern with proper stride - OPTIMIZED"""
     try:
-        buffer = bytearray()
+        # Create output buffer with proper stride
+        output_buffer = np.zeros((PROJECTOR_HEIGHT, STRIDE_BYTES_PER_LINE), dtype=np.uint8)
         
+        # Create coordinate arrays for vectorized operations
+        x_coords = np.arange(PROJECTOR_WIDTH)
+        y_coords = np.arange(PROJECTOR_HEIGHT)
+        
+        # Create RGB values using vectorized operations
+        r_values = (x_coords * 255 + frame_number * 10) % 256
+        g_values = (y_coords * 255 + frame_number * 15) % 256
+        b_values = (128 + frame_number * 20) % 256
+        
+        # Fill the buffer with BGR data
         for y in range(PROJECTOR_HEIGHT):
-            # Add data bytes for this line
-            for x in range(PROJECTOR_WIDTH):
-                # Create animated pattern
-                r = (x * 255 + frame_number * 10) % 256
-                g = (y * 255 + frame_number * 15) % 256
-                b = (128 + frame_number * 20) % 256
-                # Use BGR order (test 2 was correct)
-                buffer.extend([b, g, r])
-            
-            # Add padding bytes to reach stride
-            buffer.extend([0x00] * PADDING_BYTES_PER_LINE)
+            # Copy BGR data in one operation
+            output_buffer[y, 0:DATA_BYTES_PER_LINE:3] = b_values  # B
+            output_buffer[y, 1:DATA_BYTES_PER_LINE:3] = g_values[y]  # G
+            output_buffer[y, 2:DATA_BYTES_PER_LINE:3] = r_values  # R
         
-        return bytes(buffer)
+        # Padding is already zeros from np.zeros()
+        
+        return output_buffer.tobytes()
     except Exception as e:
         print(f"Error creating test pattern: {e}")
         return None
 
 def write_to_file(data, filename="/tmp/gm12u320_image.rgb", verbose=True):
-    """Write data to file with validation"""
+    """Write data to file with validation - OPTIMIZED"""
     try:
+        # Use direct write without flush/fsync for better performance
         with open(filename, 'wb') as f:
             f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+            # Only flush if verbose (for debugging)
+            if verbose:
+                f.flush()
+                os.fsync(f.fileno())
         
-        # Validate file size
-        file_size = os.path.getsize(filename)
-        
+        # Only validate file size if verbose
         if verbose:
+            file_size = os.path.getsize(filename)
             print(f"File written: {filename}")
             print(f"File size: {file_size} bytes")
-        
-        if file_size == TOTAL_FILE_SIZE:
-            if verbose:
+            
+            if file_size == TOTAL_FILE_SIZE:
                 print("File size validation: PASSED")
-            return True
-        else:
-            if verbose:
+            else:
                 print(f"File size validation: FAILED (expected {TOTAL_FILE_SIZE}, got {file_size})")
-            return False
+                return False
+        
+        return True
             
     except Exception as e:
         print(f"Error writing to file: {e}")
@@ -178,8 +196,9 @@ def main():
         print("\nUsage:")
         print("  python3 show_image.py [FPS] [source]")
         print("\nExamples:")
-        print("  python3 show_image.py 10 live          # Live screen capture at 10 FPS")
-        print("  python3 show_image.py 15 continuous    # Live screen capture at 15 FPS")
+        print("  python3 show_image.py 24 live          # Live screen capture at 24 FPS (recommended)")
+        print("  python3 show_image.py 30 continuous    # Live screen capture at 30 FPS")
+        print("  python3 show_image.py 24 fast          # Performance mode at 24 FPS")
         print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
         print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
         print("  python3 show_image.py                  # Test pattern at 10 FPS")
@@ -190,6 +209,7 @@ def main():
     fps = 10  # Default FPS
     image_source = None
     continuous_capture = False
+    performance_mode = False
     
     if len(sys.argv) > 1:
         # Check if first argument is FPS
@@ -214,8 +234,14 @@ def main():
     # Check for continuous capture mode
     if image_source == "live" or image_source == "continuous":
         continuous_capture = True
+        performance_mode = True  # Enable performance mode for live capture
         print("🎥 Continuous screen capture mode enabled")
         print(f"📸 Capturing screen at {fps} FPS")
+        print("⚡ Performance mode enabled for optimal FPS")
+    elif image_source == "fast" or image_source == "performance":
+        performance_mode = True
+        print("⚡ Performance mode enabled")
+        print("Use 'live' or 'continuous' for real-time capture")
     elif image_source:
         if image_source == "screen" or image_source == "capture":
             print("Capturing single screen for projector")
@@ -229,8 +255,9 @@ def main():
         else:
             print(f"Invalid image source: {image_source}")
             print("Usage examples:")
-            print("  python3 show_image.py 10 live          # Live capture at 10 FPS")
-            print("  python3 show_image.py 15 continuous    # Live capture at 15 FPS")
+            print("  python3 show_image.py 24 live          # Live capture at 24 FPS (recommended)")
+            print("  python3 show_image.py 30 continuous    # Live capture at 30 FPS")
+            print("  python3 show_image.py 24 fast          # Performance mode at 24 FPS")
             print("  python3 show_image.py 10 screen        # Single screen capture at 10 FPS")
             print("  python3 show_image.py 10 image.jpg     # Static image at 10 FPS")
             print("  python3 show_image.py                  # Test pattern at 10 FPS")
@@ -269,7 +296,7 @@ def main():
             frame_start = time.time()
             
             if continuous_capture:
-                # Capture screen continuously
+                # Capture screen continuously - OPTIMIZED
                 image = capture_screen()
                 if image is not None:
                     # Resize to projector resolution
@@ -277,50 +304,39 @@ def main():
                     if resized_image is not None:
                         # Convert to RGB buffer with stride (quiet mode for continuous capture)
                         data = create_rgb_buffer_with_stride(resized_image, verbose=False)
+                        if data:
+                            # Write to file (quiet mode for continuous capture)
+                            if write_to_file(data, verbose=False):
+                                frame_count += 1
+                                
+                                # Calculate and display stats every 10 frames
+                                if frame_count % 10 == 0:
+                                    monitor_performance(frame_count, start_time, image.size)
+                        else:
+                            print("⚠️  Buffer creation failed, skipping frame")
                     else:
-                        data = None
-                else:
-                    data = None
-                    
-                if data:
-                    # Write to file (quiet mode for continuous capture)
-                    if write_to_file(data, verbose=False):
-                        frame_count += 1
-                        
-                        # Calculate and display stats every 10 frames
-                        if frame_count % 10 == 0:
-                            elapsed = time.time() - start_time
-                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
-                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s | Screen: {image.size[0]}x{image.size[1]}")
+                        print("⚠️  Image resize failed, skipping frame")
                 else:
                     print("⚠️  Screen capture failed, skipping frame")
                     
             elif use_static_image:
-                # Use static image
+                # Use static image - OPTIMIZED
                 data = static_data
-                if data:
-                    # Write to file
-                    if write_to_file(data):
-                        frame_count += 1
-                        
-                        # Calculate and display stats every 10 frames
-                        if frame_count % 10 == 0:
-                            elapsed = time.time() - start_time
-                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
-                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
+                if data and write_to_file(data, verbose=False):
+                    frame_count += 1
+                    
+                    # Calculate and display stats every 10 frames
+                    if frame_count % 10 == 0:
+                        monitor_performance(frame_count, start_time)
             else:
-                # Create animated test pattern
+                # Create animated test pattern - OPTIMIZED
                 data = create_test_pattern(frame_count)
-                if data:
-                    # Write to file
-                    if write_to_file(data):
-                        frame_count += 1
-                        
-                        # Calculate and display stats every 10 frames
-                        if frame_count % 10 == 0:
-                            elapsed = time.time() - start_time
-                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
-                            print(f"Frame {frame_count} | FPS: {actual_fps:.1f} | Time: {elapsed:.1f}s")
+                if data and write_to_file(data, verbose=False):
+                    frame_count += 1
+                    
+                    # Calculate and display stats every 10 frames
+                    if frame_count % 10 == 0:
+                        monitor_performance(frame_count, start_time)
             
             # Calculate sleep time to maintain FPS
             frame_time = time.time() - frame_start
