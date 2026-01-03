@@ -1,5 +1,5 @@
 /*
- * GM12U320 Projector Screen Mirror - mmap optimized
+ * GM12U320 Projector Screen Mirror - mmap optimized (simple)
  *
  * Captura el desktop X11 y escribe el framebuffer directamente
  * en memoria RAM mediante mmap.
@@ -14,7 +14,6 @@
 
  #define _GNU_SOURCE
 
- #include <sched.h>
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
@@ -24,61 +23,11 @@
  #include <sys/time.h>
  #include <sys/shm.h>
  #include <signal.h>
+ #include <errno.h>
+ 
  #include <X11/Xlib.h>
  #include <X11/Xutil.h>
  #include <X11/extensions/XShm.h>
- #include <time.h>
- #include <errno.h>
- #include <sched.h>
-
- static void enable_realtime_fifo_or_die(int prio) {
-    struct sched_param sp;
-    memset(&sp, 0, sizeof(sp));
-    sp.sched_priority = prio; // 1..99 (más alto = más prioridad)
-
-    if (sched_setscheduler(0, SCHED_FIFO, &sp) != 0) {
-        fprintf(stderr, "❌ sched_setscheduler(SCHED_FIFO,%d) falló: %s\n",
-                prio, strerror(errno));
-        exit(1);
-    }
-
-    printf("✅ SCHED_FIFO activado (prio=%d)\n", prio);
-}
-
- static void set_cpu_affinity_or_die(int cpu) {
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu, &set);
-
-    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
-        fprintf(stderr, "❌ sched_setaffinity(cpu=%d) falló: %s\n", cpu, strerror(errno));
-        exit(1);
-    }
-
-    // Verificación (opcional pero útil)
-    int cur = sched_getcpu();
-    if (cur >= 0) {
-        printf("✅ Afinidad fijada. CPU actual: %d\n", cur);
-    }
-}
-
- static inline void timespec_add_ns(struct timespec *t, long ns) {
-    t->tv_nsec += ns;
-    while (t->tv_nsec >= 1000000000L) {
-        t->tv_nsec -= 1000000000L;
-        t->tv_sec += 1;
-    }
-}
-
-static inline void sleep_until(struct timespec *next, long interval_ns) {
-    // next marca el deadline absoluto del próximo frame
-    timespec_add_ns(next, interval_ns);
-
-    int rc;
-    do {
-        rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, next, NULL);
-    } while (rc == EINTR);  // sin 'running'
-}
  
  static volatile int running = 1;
  
@@ -93,11 +42,11 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  #define OUTPUT_FILE "/tmp/gm12u320_image.rgb"
  
  /* X11 */
- static Display *display;
+ static Display *display = NULL;
  static Window root;
- static XImage *ximage;
+ static XImage *ximage = NULL;
  static XShmSegmentInfo shminfo;
- static int screen_w, screen_h;
+ static int screen_w = 0, screen_h = 0;
  static int use_shm = 0;
  
  /* mmap */
@@ -142,18 +91,35 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
              screen_h
          );
  
-         shminfo.shmid = shmget(
-             IPC_PRIVATE,
-             ximage->bytes_per_line * ximage->height,
-             IPC_CREAT | 0777
-         );
- 
-         shminfo.shmaddr = ximage->data = shmat(shminfo.shmid, 0, 0);
-         shminfo.readOnly = False;
- 
-         if (!XShmAttach(display, &shminfo)) {
-             fprintf(stderr, "⚠️ XShmAttach falló, fallback\n");
+         if (!ximage) {
+             fprintf(stderr, "⚠️ XShmCreateImage falló, fallback\n");
              use_shm = 0;
+         } else {
+             shminfo.shmid = shmget(
+                 IPC_PRIVATE,
+                 ximage->bytes_per_line * ximage->height,
+                 IPC_CREAT | 0777
+             );
+ 
+             if (shminfo.shmid < 0) {
+                 fprintf(stderr, "⚠️ shmget falló, fallback\n");
+                 use_shm = 0;
+             } else {
+                 shminfo.shmaddr = ximage->data = shmat(shminfo.shmid, 0, 0);
+                 if (shminfo.shmaddr == (char*)-1) {
+                     fprintf(stderr, "⚠️ shmat falló, fallback\n");
+                     shmctl(shminfo.shmid, IPC_RMID, 0);
+                     use_shm = 0;
+                 } else {
+                     shminfo.readOnly = False;
+                     if (!XShmAttach(display, &shminfo)) {
+                         fprintf(stderr, "⚠️ XShmAttach falló, fallback\n");
+                         shmdt(shminfo.shmaddr);
+                         shmctl(shminfo.shmid, IPC_RMID, 0);
+                         use_shm = 0;
+                     }
+                 }
+             }
          }
      }
  
@@ -163,26 +129,32 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
              screen_w, screen_h,
              AllPlanes, ZPixmap
          );
+         if (!ximage) {
+             fprintf(stderr, "❌ XGetImage falló\n");
+             return 0;
+         }
      }
  
-     printf("✅ X11 %dx%d (%s)\n",
-            screen_w, screen_h,
-            use_shm ? "XShm" : "XGetImage");
- 
+     printf("✅ X11 %dx%d (%s)\n", screen_w, screen_h, use_shm ? "XShm" : "XGetImage");
      return 1;
  }
  
  static void cleanup_x11(void) {
-     if (use_shm) {
+     if (use_shm && ximage) {
          XShmDetach(display, &shminfo);
+         XDestroyImage(ximage);            // también libera ximage->data (pero shm se maneja aparte)
          shmdt(shminfo.shmaddr);
          shmctl(shminfo.shmid, IPC_RMID, 0);
+         ximage = NULL;
      } else if (ximage) {
          XDestroyImage(ximage);
+         ximage = NULL;
      }
  
-     if (display)
+     if (display) {
          XCloseDisplay(display);
+         display = NULL;
+     }
  }
  
  /* ---------------- mmap ---------------- */
@@ -196,6 +168,8 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  
      if (ftruncate(fb_fd, TOTAL_FILE_SIZE) < 0) {
          perror("ftruncate");
+         close(fb_fd);
+         fb_fd = -1;
          return 0;
      }
  
@@ -210,6 +184,9 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  
      if (fb_map == MAP_FAILED) {
          perror("mmap");
+         fb_map = NULL;
+         close(fb_fd);
+         fb_fd = -1;
          return 0;
      }
  
@@ -218,10 +195,14 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  }
  
  static void cleanup_mmap(void) {
-     if (fb_map)
+     if (fb_map) {
          munmap(fb_map, TOTAL_FILE_SIZE);
-     if (fb_fd >= 0)
+         fb_map = NULL;
+     }
+     if (fb_fd >= 0) {
          close(fb_fd);
+         fb_fd = -1;
+     }
  }
  
  /* -------- resize + BGR copy -------- */
@@ -240,7 +221,7 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  
          for (int x = 0; x < PROJECTOR_WIDTH; x++) {
              int sxx = (int)(x * sx);
-             unsigned char *p = src_row + sxx * 4;
+             unsigned char *p = src_row + sxx * 4;  // asumimos X11 32bpp
  
              dst_row[x*3 + 0] = p[0]; // B
              dst_row[x*3 + 1] = p[1]; // G
@@ -252,69 +233,47 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  /* ---------------- main ---------------- */
  
  int main(int argc, char **argv) {
-    if (argc != 3 || strcmp(argv[2], "screen") != 0) {
-        // fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
-        return 1;
-    }
-
-    double fps = atof(argv[1]);
-    if (fps <= 0.0 || fps > 60.0) {
-        fprintf(stderr, "FPS inválido\n");
-        return 1;
-    }
-
-    const long frame_interval_ns = (long)(1e9 / fps);
-
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
-
-    if (!init_x11()) return 1;
-    if (!init_mmap()) return 1;
-
-    set_cpu_affinity_or_die(3);
-    enable_realtime_fifo_or_die(80);
-
-    printf("▶ Mirror activo (%.1f FPS objetivo)\n", fps);
-
-    double start = now_sec();
-    unsigned long frames = 0;
-
-    /* ⏱ Inicializa el instante absoluto del primer frame */
-    struct timespec next;
-    clock_gettime(CLOCK_MONOTONIC, &next);
-
-    while (running) {
-        double t0 = now_sec();
-
-        /* 📸 Captura */
-        if (use_shm) {
-            XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
-        } else {
-            XGetSubImage(
-                display, root,
-                0, 0,
-                screen_w, screen_h,
-                AllPlanes, ZPixmap,
-                ximage, 0, 0
-            );
-        }
-
-        /* 🔄 Conversión directa a buffer mmap */
-        convert_frame();
-        frames++;
-
-        /* 📊 Métrica simple */
-        if ((frames % 30) == 0) {
-            double elapsed = now_sec() - start;
-            printf("FPS: %.1f\n", frames / elapsed);
-        }
-
-        /* 💤 Sleep absoluto (sin drift) */
-        sleep_until(&next, frame_interval_ns);
-    }
-
-    printf("\n⏹ Deteniendo\n");
-    cleanup_mmap();
-    cleanup_x11();
-    return 0;
-}
+     if (argc != 3 || strcmp(argv[2], "screen") != 0) {
+         return 1;
+     }
+ 
+     double fps = atof(argv[1]);
+     if (fps <= 0.0 || fps > 60.0) {
+         return 1;
+     }
+ 
+     double interval = 1.0 / fps;
+ 
+     signal(SIGINT, on_signal);
+     signal(SIGTERM, on_signal);
+ 
+     if (!init_x11()) return 1;
+     if (!init_mmap()) return 1;
+ 
+     // printf("▶ Mirror activo (%.1f FPS)\n", fps);
+ 
+     while (running) {
+         double t0 = now_sec();
+ 
+         if (use_shm) {
+             XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
+         } else {
+             XGetSubImage(display, root, 0, 0,
+                          screen_w, screen_h,
+                          AllPlanes, ZPixmap,
+                          ximage, 0, 0);
+         }
+ 
+         convert_frame();
+ 
+         double dt = now_sec() - t0;
+         double sleep_s = interval - dt;
+         if (sleep_s > 0) {
+             usleep((useconds_t)(sleep_s * 1e6));
+         }
+     }
+ 
+     cleanup_mmap();
+     cleanup_x11();
+     return 0;
+ }
