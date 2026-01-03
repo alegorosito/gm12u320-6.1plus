@@ -24,6 +24,16 @@
  #include <X11/Xlib.h>
  #include <X11/Xutil.h>
  #include <X11/extensions/XShm.h>
+ #include <time.h>
+
+static void sleep_until(struct timespec *ts, double interval) {
+    ts->tv_nsec += (long)(interval * 1e9);
+    while (ts->tv_nsec >= 1000000000L) {
+        ts->tv_nsec -= 1000000000L;
+        ts->tv_sec++;
+    }
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, ts, NULL);
+}
  
  static volatile int running = 1;
  
@@ -211,10 +221,16 @@
      if (!init_x11()) return 1;
      if (!init_mmap()) return 1;
  
-     printf("▶ Mirror activo (%.1f FPS)\n", fps);
+    //  printf("▶ Mirror activo (%.1f FPS)\n", fps);
  
      double start = now_sec();
      unsigned long frames = 0;
+
+     start_time = get_time();
+
+    /* ✅ Inicializa el “próximo instante objetivo” del scheduler de frames */
+    struct timespec next;
+    clock_gettime(CLOCK_MONOTONIC, &next);
  
      while (running) {
          double t0 = now_sec();
