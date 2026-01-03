@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
 GM12U320 Projector Image Display Script
-Supports 800x600 and 1024x768 resolutions with proper stride handling
-Can display images from file, URL, or capture screen continuously
+Simplified version with 3 main options:
+1. Test pattern (default, no arguments)
+2. Image/Video file
+3. Screen capture
 
 Requirements:
 - PIL (Pillow) with ImageGrab support
+- OpenCV (cv2) for video support
 - On Linux: may need additional packages for screen capture
 - On macOS: requires screen recording permissions
 - On Windows: should work out of the box
@@ -15,10 +18,16 @@ import numpy as np
 import os
 import sys
 import time
-import subprocess
 from PIL import Image, ImageGrab
-import requests
-import io
+
+# Try to import OpenCV for video support
+try:
+    import cv2
+    HAS_OPENCV = True
+except ImportError:
+    HAS_OPENCV = False
+    print("⚠️  OpenCV no está instalado. El soporte de video estará deshabilitado.")
+    print("   Instala con: pip install opencv-python")
 
 # Resolution configurations
 RESOLUTIONS = {
@@ -79,26 +88,54 @@ def set_resolution(resolution_name):
 def load_image_from_path(image_path):
     """Load image from local file path"""
     try:
-        print(f"Loading image from: {image_path}")
+        print(f"📷 Cargando imagen: {image_path}")
         image = Image.open(image_path)
-        print(f"Image loaded: {image.size[0]}x{image.size[1]} pixels")
+        print(f"   Imagen cargada: {image.size[0]}x{image.size[1]} píxeles")
         return image
     except Exception as e:
-        print(f"Error loading image: {e}")
+        print(f"❌ Error cargando imagen: {e}")
         return None
 
-def download_image(url):
-    """Download image from URL"""
+def is_video_file(filename):
+    """Check if file is a video based on extension"""
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v']
+    return any(filename.lower().endswith(ext) for ext in video_extensions)
+
+def load_video_frame(video_path, frame_number=0):
+    """Load a frame from video file"""
+    if not HAS_OPENCV:
+        print("❌ OpenCV no está disponible para reproducir video")
+        return None
+    
     try:
-        print(f"Downloading image from: {url}")
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"❌ No se pudo abrir el video: {video_path}")
+            return None
         
-        image = Image.open(io.BytesIO(response.content))
-        print(f"Image downloaded: {image.size[0]}x{image.size[1]} pixels")
-        return image
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps if fps > 0 else 0
+        
+        print(f"🎬 Video cargado: {video_path}")
+        print(f"   FPS: {fps:.2f}, Frames: {total_frames}, Duración: {duration:.1f}s")
+        
+        # Seek to frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        ret, frame = cap.read()
+        
+        if ret:
+            # Convert BGR to RGB for PIL
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame_rgb)
+            cap.release()
+            return image, fps, total_frames
+        else:
+            cap.release()
+            return None, fps, total_frames
     except Exception as e:
-        print(f"Error downloading image: {e}")
+        print(f"❌ Error cargando video: {e}")
         return None
 
 def resize_image(image, target_width, target_height):
@@ -278,118 +315,118 @@ def main():
     
     # Check if projector device exists
     if not os.path.exists('/dev/dri/renderD128'):
-        print("Projector device /dev/dri/renderD128 not found")
-        print("Please make sure the GM12U320 driver is loaded")
+        print("❌ Dispositivo /dev/dri/renderD128 no encontrado")
+        print("   Asegúrate de que el driver GM12U320 esté cargado")
         return 1
     
-    print("Projector device found: /dev/dri/renderD128")
+    print("✅ Dispositivo encontrado: /dev/dri/renderD128")
     
-    # Show usage if no arguments provided
-    if len(sys.argv) == 1:
-        print("\nUsage:")
-        print("  python3 show_image.py [FPS] [source] [resolution]")
-        print("\nExamples:")
-        print("  python3 show_image.py 24 live 800x600     # Live capture at 24 FPS, 800x600")
-        print("  python3 show_image.py 30 live 1024x768    # Live capture at 30 FPS, 1024x768")
-        print("  python3 show_image.py 24 fast             # Performance mode at 24 FPS")
-        print("  python3 show_image.py 10 screen           # Single screen capture")
-        print("  python3 show_image.py 10 image.jpg        # Static image")
-        print("  python3 show_image.py                     # Test pattern")
-        print("\nAvailable resolutions: 800x600, 1024x768")
-        print("Note: 1024x768 requires more processing power but provides higher resolution")
-        print("Press Ctrl+C to stop")
-        print()
-    
-    # Parse command line arguments
+    # Parse arguments - SIMPLIFIED
     fps = 10  # Default FPS
-    image_source = None
-    resolution = DEFAULT_RESOLUTION
-    continuous_capture = False
-    performance_mode = False
+    mode = "test"  # test, image, video, screen
+    source_file = None
+    video_info = None  # (fps, total_frames) for video
     
-    if len(sys.argv) > 1:
-        # Check if first argument is FPS
+    if len(sys.argv) == 1:
+        # No arguments: test pattern at default FPS
+        mode = "test"
+        print("\n🎨 Modo: Patrón de prueba (por defecto)")
+        print(f"   FPS: {fps}")
+    elif len(sys.argv) == 2:
+        arg = sys.argv[1]
+        # Check if it's a number (FPS for test pattern)
         try:
-            fps = float(sys.argv[1])
+            fps = float(arg)
             if fps <= 0 or fps > 60:
-                print("FPS must be between 0.1 and 60")
+                print("❌ FPS debe estar entre 0.1 y 60")
                 return 1
-            print(f"Using FPS: {fps}")
-            
-            # Check for additional arguments
-            if len(sys.argv) > 2:
-                image_source = sys.argv[2]
-            if len(sys.argv) > 3:
-                resolution = sys.argv[3]
+            mode = "test"
+            print(f"\n🎨 Modo: Patrón de prueba")
+            print(f"   FPS: {fps}")
         except ValueError:
-            # First argument is not FPS, treat as image source
-            image_source = sys.argv[1]
-            if len(sys.argv) > 2:
-                resolution = sys.argv[2]
+            # Not a number, check if it's a file or "screen"
+            if arg.lower() == "screen":
+                mode = "screen"
+                print("\n📸 Modo: Captura de pantalla principal")
+            elif os.path.exists(arg):
+                if is_video_file(arg):
+                    mode = "video"
+                    source_file = arg
+                    print(f"\n🎬 Modo: Reproducción de video")
+                    print(f"   Archivo: {arg}")
+                else:
+                    mode = "image"
+                    source_file = arg
+                    print(f"\n📷 Modo: Imagen estática")
+                    print(f"   Archivo: {arg}")
+            else:
+                print(f"❌ Archivo no encontrado: {arg}")
+                print("\nUso:")
+                print("  python3 show_image.py              # Patrón de prueba (10 FPS)")
+                print("  python3 show_image.py 24           # Patrón de prueba a 24 FPS")
+                print("  python3 show_image.py imagen.jpg   # Mostrar imagen")
+                print("  python3 show_image.py video.mp4     # Reproducir video")
+                print("  python3 show_image.py screen       # Capturar pantalla principal")
+                return 1
+    else:
+        print("❌ Demasiados argumentos")
+        print("\nUso:")
+        print("  python3 show_image.py              # Patrón de prueba (10 FPS)")
+        print("  python3 show_image.py 24           # Patrón de prueba a 24 FPS")
+        print("  python3 show_image.py imagen.jpg   # Mostrar imagen")
+        print("  python3 show_image.py video.mp4     # Reproducir video")
+        print("  python3 show_image.py screen       # Capturar pantalla principal")
+        return 1
     
-    # Set resolution
-    if not set_resolution(resolution):
+    # Set default resolution
+    if not set_resolution(DEFAULT_RESOLUTION):
         return 1
     
     # Calculate frame interval
     frame_interval = 1.0 / fps
-    print(f"Frame interval: {frame_interval:.3f} seconds")
+    print(f"   Intervalo: {frame_interval:.3f} segundos")
+    print("   Presiona Ctrl+C para detener\n")
     
-    # Check for continuous capture mode
-    if image_source == "live" or image_source == "continuous":
-        continuous_capture = True
-        performance_mode = True  # Enable performance mode for live capture
-        print("🎥 Continuous screen capture mode enabled")
-        print(f"📸 Capturing screen at {fps} FPS")
-        print("⚡ Performance mode enabled for optimal FPS")
-    elif image_source == "fast" or image_source == "performance":
-        performance_mode = True
-        print("⚡ Performance mode enabled")
-        print("Use 'live' or 'continuous' for real-time capture")
-    elif image_source:
-        if image_source == "screen" or image_source == "capture":
-            print("Capturing single screen for projector")
-            image = capture_screen()
-        elif os.path.exists(image_source):
-            print(f"Using local image file: {image_source}")
-            image = load_image_from_path(image_source)
-        elif image_source.startswith(('http://', 'https://')):
-            print(f"Using custom image URL: {image_source}")
-            image = download_image(image_source)
-        else:
-            print(f"Invalid image source: {image_source}")
-            print("Usage examples:")
-            print("  python3 show_image.py 24 live 800x600     # Live capture at 24 FPS, 800x600")
-            print("  python3 show_image.py 30 live 1024x768    # Live capture at 30 FPS, 1024x768")
-            print("  python3 show_image.py 24 fast             # Performance mode at 24 FPS")
-            print("  python3 show_image.py 10 screen           # Single screen capture")
-            print("  python3 show_image.py 10 image.jpg        # Static image")
-            print("  python3 show_image.py                     # Test pattern")
-            image = None
-            
-        if image is None:
-            print("Using animated test pattern instead")
-            use_static_image = False
-        else:
-            # Resize image
+    # Load content based on mode
+    use_static_image = False
+    static_data = None
+    video_cap = None
+    video_fps = None
+    video_total_frames = 0
+    video_frame_number = 0
+    
+    if mode == "image":
+        image = load_image_from_path(source_file)
+        if image:
             resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
-            if resized_image is None:
-                print("Using animated test pattern instead")
-                use_static_image = False
-            else:
-                # Convert to RGB buffer with stride
-                static_data = create_rgb_buffer_with_stride(resized_image)
-                if static_data is None:
-                    print("Using animated test pattern instead")
-                    use_static_image = False
-                else:
+            if resized_image:
+                static_data = create_rgb_buffer_with_stride(resized_image, verbose=False)
+                if static_data:
                     use_static_image = True
-    else:
-        print("Using animated test pattern")
-        use_static_image = False
-    
-    print(f"Refresh rate: {fps} FPS")
-    print("Press Ctrl+C to stop")
+        if not use_static_image:
+            print("⚠️  No se pudo cargar la imagen, usando patrón de prueba")
+            mode = "test"
+    elif mode == "video":
+        if not HAS_OPENCV:
+            print("⚠️  OpenCV no disponible, usando patrón de prueba")
+            mode = "test"
+        else:
+            video_cap = cv2.VideoCapture(source_file)
+            if not video_cap.isOpened():
+                print("⚠️  No se pudo abrir el video, usando patrón de prueba")
+                mode = "test"
+            else:
+                video_fps = video_cap.get(cv2.CAP_PROP_FPS)
+                video_total_frames = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                print(f"   FPS del video: {video_fps:.2f}, Frames totales: {video_total_frames}")
+                # Use video FPS if available, otherwise use specified FPS
+                if video_fps > 0:
+                    fps = video_fps
+                    frame_interval = 1.0 / fps
+                    print(f"   Usando FPS del video: {fps:.2f}")
+    elif mode == "screen":
+        print("📸 Capturando pantalla principal...")
+        # Will capture continuously in the loop
     
     # Main refresh loop
     frame_count = 0
@@ -398,56 +435,59 @@ def main():
     try:
         while True:
             frame_start = time.time()
+            data = None
             
-            if continuous_capture:
-                # Capture screen continuously - IMPROVED with retry logic
+            if mode == "screen":
+                # Capture screen continuously
                 image = capture_screen_with_retry(max_retries=2)
                 if image is not None:
-                    # Resize to projector resolution
                     resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
                     if resized_image is not None:
-                        # Convert to RGB buffer with stride (quiet mode for continuous capture)
                         data = create_rgb_buffer_with_stride(resized_image, verbose=False)
-                        if data:
-                            # Write to file (quiet mode for continuous capture)
-                            if write_to_file(data, verbose=False):
-                                frame_count += 1
-                                
-                                # Calculate and display stats every 10 frames
-                                if frame_count % 10 == 0:
-                                    monitor_performance(frame_count, start_time, image.size)
-                            else:
-                                print("⚠️  File write failed, retrying next frame")
-                        else:
-                            print("⚠️  Buffer creation failed, retrying next frame")
-                    else:
-                        print("⚠️  Image resize failed, retrying next frame")
+                        if data and write_to_file(data, verbose=False):
+                            frame_count += 1
+                            if frame_count % 10 == 0:
+                                monitor_performance(frame_count, start_time, image.size)
                 else:
-                    # If all capture attempts fail, show a brief error pattern instead of test pattern
-                    print("⚠️  Screen capture failed, showing error pattern")
-                    error_data = create_error_pattern(frame_count)
-                    if error_data and write_to_file(error_data, verbose=False):
-                        frame_count += 1
+                    print("⚠️  Captura fallida, reintentando...")
+                    
+            elif mode == "video":
+                # Read next frame from video
+                if video_cap and video_cap.isOpened():
+                    ret, frame = video_cap.read()
+                    if ret:
+                        # Convert BGR to RGB
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        image = Image.fromarray(frame_rgb)
+                        resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
+                        if resized_image:
+                            data = create_rgb_buffer_with_stride(resized_image, verbose=False)
+                            if data and write_to_file(data, verbose=False):
+                                frame_count += 1
+                                video_frame_number += 1
+                                if frame_count % 30 == 0:
+                                    progress = (video_frame_number / video_total_frames * 100) if video_total_frames > 0 else 0
+                                    print(f"Frame {frame_count} | Video: {video_frame_number}/{video_total_frames} ({progress:.1f}%)")
+                    else:
+                        # End of video, restart
+                        video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        video_frame_number = 0
+                        print("🔄 Video reiniciado")
                         
-                        # Calculate and display stats every 10 frames
+            elif mode == "image":
+                # Static image
+                if static_data:
+                    data = static_data
+                    if write_to_file(data, verbose=False):
+                        frame_count += 1
                         if frame_count % 10 == 0:
                             monitor_performance(frame_count, start_time)
-            elif use_static_image:
-                # Use static image - OPTIMIZED
-                data = static_data
-                if data and write_to_file(data, verbose=False):
-                    frame_count += 1
-                    
-                    # Calculate and display stats every 10 frames
-                    if frame_count % 10 == 0:
-                        monitor_performance(frame_count, start_time)
-            else:
-                # Create animated test pattern - OPTIMIZED
+                            
+            else:  # mode == "test"
+                # Test pattern
                 data = create_test_pattern(frame_count)
                 if data and write_to_file(data, verbose=False):
                     frame_count += 1
-                    
-                    # Calculate and display stats every 10 frames
                     if frame_count % 10 == 0:
                         monitor_performance(frame_count, start_time)
             
@@ -459,23 +499,29 @@ def main():
                 time.sleep(sleep_time)
             
     except KeyboardInterrupt:
-        print("\nStopping image display")
+        print("\n\n⏹️  Deteniendo...")
+        
+        # Cleanup
+        if video_cap:
+            video_cap.release()
+        
         try:
-            os.remove("/tmp/temp_screen.jpg")
             os.remove("/tmp/gm12u320_image.rgb")
-            if continuous_capture:
-                print("Live capture stopped, projector will show test pattern")
-            else:
-                print("Image files removed, projector will show test pattern")
         except:
             pass
         
         # Final stats
         total_time = time.time() - start_time
         final_fps = frame_count / total_time if total_time > 0 else 0
-        print(f"Final stats: {frame_count} frames in {total_time:.1f}s = {final_fps:.1f} FPS")
-        if continuous_capture:
-            print("Live screen capture completed")
+        print(f"📊 Estadísticas finales:")
+        print(f"   Frames: {frame_count}")
+        print(f"   Tiempo: {total_time:.1f}s")
+        print(f"   FPS promedio: {final_fps:.1f}")
+        
+        if mode == "video":
+            print(f"   Video reproducido: {video_frame_number} frames")
+        
+        print("\n✅ Proyección detenida")
         return 0
 
 if __name__ == "__main__":
