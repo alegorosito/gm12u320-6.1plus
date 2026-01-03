@@ -277,12 +277,12 @@ def main():
     print("=================================")
     
     # Check if projector device exists
-    if not os.path.exists('/dev/dri/card2'):
-        print("Projector device /dev/dri/card2 not found")
+    if not os.path.exists('/dev/dri/card1'):
+        print("Projector device /dev/dri/card1 not found")
         print("Please make sure the GM12U320 driver is loaded")
         return 1
     
-    print("Projector device found: /dev/dri/card2")
+    print("Projector device found: /dev/dri/card1")
     
     # Show usage if no arguments provided
     if len(sys.argv) == 1:
