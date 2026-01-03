@@ -52,6 +52,9 @@ DATA_BYTES_PER_LINE = RESOLUTIONS[DEFAULT_RESOLUTION]['data_bytes_per_line']
 PADDING_BYTES_PER_LINE = RESOLUTIONS[DEFAULT_RESOLUTION]['padding_bytes_per_line']
 TOTAL_FILE_SIZE = RESOLUTIONS[DEFAULT_RESOLUTION]['total_size']
 
+# Global device path (will be set by driver detection)
+PROJECTOR_DEVICE = None
+
 def set_resolution(resolution_name):
     """Set the global resolution settings"""
     global PROJECTOR_WIDTH, PROJECTOR_HEIGHT, STRIDE_BYTES_PER_LINE
@@ -272,22 +275,183 @@ def write_to_file(data, filename="/tmp/gm12u320_image.rgb", verbose=True):
         print(f"Error writing to file: {e}")
         return False
 
+def is_module_loaded(module_name="gm12u320"):
+    """Check if a kernel module is loaded"""
+    try:
+        # Check /proc/modules for the module
+        with open('/proc/modules', 'r') as f:
+            modules = f.read()
+            return module_name in modules
+    except FileNotFoundError:
+        # Fallback to lsmod command
+        try:
+            result = subprocess.run(['lsmod'], capture_output=True, text=True, timeout=2)
+            return module_name in result.stdout
+        except:
+            return False
+    except Exception as e:
+        print(f"Error checking module: {e}")
+        return False
+
+def find_dri_device():
+    """Find the DRI device for the projector (card0, card1, card2, etc.)"""
+    # Common DRI device paths
+    possible_devices = ['/dev/dri/card0', '/dev/dri/card1', '/dev/dri/card2', '/dev/dri/card3']
+    
+    for device in possible_devices:
+        if os.path.exists(device):
+            # Check if it's the gm12u320 device by checking sysfs
+            try:
+                # Check if the device is associated with gm12u320
+                device_num = device.split('card')[-1]
+                sysfs_path = f'/sys/class/drm/card{device_num}/device/uevent'
+                if os.path.exists(sysfs_path):
+                    with open(sysfs_path, 'r') as f:
+                        uevent = f.read()
+                        if 'gm12u320' in uevent.lower():
+                            return device
+            except:
+                pass
+    
+    # If no specific device found, return the first available card
+    for device in possible_devices:
+        if os.path.exists(device):
+            return device
+    
+    return None
+
+def load_driver_module(module_name="gm12u320", auto_load=True):
+    """Load the driver module if not already loaded"""
+    # Check if module is already loaded
+    if is_module_loaded(module_name):
+        print(f"✅ Driver module '{module_name}' is already loaded")
+        return True
+    
+    if not auto_load:
+        print(f"⚠️  Driver module '{module_name}' is not loaded")
+        print(f"   Please load it manually with: sudo modprobe {module_name}")
+        return False
+    
+    print(f"📦 Driver module '{module_name}' not found, attempting to load...")
+    
+    # Try to load the module
+    try:
+        # First try modprobe (recommended method)
+        result = subprocess.run(
+            ['sudo', 'modprobe', module_name],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            print(f"✅ Successfully loaded driver module '{module_name}'")
+            # Wait a moment for the device to appear
+            time.sleep(1)
+            return True
+        else:
+            print(f"❌ Failed to load module with modprobe: {result.stderr}")
+            
+            # Try insmod as fallback (requires full path)
+            print("   Trying alternative method...")
+            module_paths = [
+                f'/lib/modules/{os.uname().release}/updates/dkms/{module_name}.ko',
+                f'/lib/modules/{os.uname().release}/extra/{module_name}.ko',
+                f'/lib/modules/{os.uname().release}/kernel/drivers/gpu/drm/{module_name}/{module_name}.ko',
+            ]
+            
+            for path in module_paths:
+                if os.path.exists(path):
+                    result = subprocess.run(
+                        ['sudo', 'insmod', path],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if result.returncode == 0:
+                        print(f"✅ Successfully loaded driver module from {path}")
+                        time.sleep(1)
+                        return True
+            
+            print(f"❌ Could not load module '{module_name}'")
+            print(f"   Please install the driver first:")
+            print(f"   1. Build: make")
+            print(f"   2. Install: sudo make modules_install")
+            print(f"   3. Load: sudo modprobe {module_name}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print(f"❌ Timeout while loading module '{module_name}'")
+        return False
+    except FileNotFoundError:
+        print(f"❌ 'modprobe' command not found. Please load the module manually:")
+        print(f"   sudo modprobe {module_name}")
+        return False
+    except Exception as e:
+        print(f"❌ Error loading module: {e}")
+        return False
+
+def check_and_setup_driver(auto_load=True):
+    """Check if driver is loaded and device exists, load if needed"""
+    module_name = "gm12u320"
+    
+    # Step 1: Check if module is loaded
+    if not is_module_loaded(module_name):
+        if not auto_load:
+            print(f"❌ Driver module '{module_name}' is not loaded")
+            print(f"   Please load it with: sudo modprobe {module_name}")
+            return None, False
+        
+        # Try to load the module
+        if not load_driver_module(module_name, auto_load=True):
+            return None, False
+    
+    # Step 2: Find the DRI device
+    device_path = find_dri_device()
+    
+    if device_path is None:
+        print("⚠️  No DRI device found")
+        print("   The driver may be loaded but the device is not connected")
+        print("   Please check:")
+        print("   1. Is the projector connected via USB?")
+        print("   2. Is the USB device recognized? (lsusb)")
+        return None, False
+    
+    print(f"✅ Found projector device: {device_path}")
+    return device_path, True
+
 def main():
     print("GM12U320 Projector Image Display")
     print("=================================")
     
-    # Check if projector device exists
-    if not os.path.exists('/dev/dri/card1'):
-        print("Projector device /dev/dri/card1 not found")
-        print("Please make sure the GM12U320 driver is loaded")
+    # Parse command line arguments first to check for auto-load flag
+    auto_load_driver = True
+    
+    if len(sys.argv) > 1:
+        # Check for special flags first
+        if '--no-auto-load' in sys.argv or '--manual' in sys.argv:
+            auto_load_driver = False
+            sys.argv.remove('--no-auto-load' if '--no-auto-load' in sys.argv else '--manual')
+    
+    # Check and setup driver (auto-load if needed)
+    device_path, driver_ok = check_and_setup_driver(auto_load=auto_load_driver)
+    
+    if not driver_ok or device_path is None:
+        print("\n❌ Driver setup failed")
+        print("Please ensure:")
+        print("  1. The driver is installed (make && sudo make modules_install)")
+        print("  2. The projector is connected via USB")
+        print("  3. You have sudo permissions to load modules")
         return 1
     
-    print("Projector device found: /dev/dri/card1")
+    # Store device path for later use (if needed)
+    global PROJECTOR_DEVICE
+    PROJECTOR_DEVICE = device_path
     
     # Show usage if no arguments provided
     if len(sys.argv) == 1:
         print("\nUsage:")
-        print("  python3 show_image.py [FPS] [source] [resolution]")
+        print("  python3 show_image.py [FPS] [source] [resolution] [--no-auto-load]")
         print("\nExamples:")
         print("  python3 show_image.py 24 live 800x600     # Live capture at 24 FPS, 800x600")
         print("  python3 show_image.py 30 live 1024x768    # Live capture at 30 FPS, 1024x768")
@@ -295,6 +459,8 @@ def main():
         print("  python3 show_image.py 10 screen           # Single screen capture")
         print("  python3 show_image.py 10 image.jpg        # Static image")
         print("  python3 show_image.py                     # Test pattern")
+        print("\nOptions:")
+        print("  --no-auto-load    Don't automatically load the driver module")
         print("\nAvailable resolutions: 800x600, 1024x768")
         print("Note: 1024x768 requires more processing power but provides higher resolution")
         print("Press Ctrl+C to stop")
@@ -308,6 +474,7 @@ def main():
     performance_mode = False
     
     if len(sys.argv) > 1:
+        
         # Check if first argument is FPS
         try:
             fps = float(sys.argv[1])
