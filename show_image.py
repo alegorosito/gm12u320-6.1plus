@@ -18,8 +18,6 @@ import numpy as np
 import os
 import sys
 import time
-import subprocess
-import platform
 from PIL import Image, ImageGrab
 
 # Try to import OpenCV for video support
@@ -187,134 +185,45 @@ def create_rgb_buffer_with_stride(image, verbose=True):
         print(f"Error creating RGB buffer: {e}")
         return None
 
-def capture_screen_linux(display=None):
-    """Capture screen on Linux using command-line tools (works with sudo)"""
-    # Try different methods in order of preference
-    methods = [
-        ('scrot', ['scrot', '-z', '/tmp/gm12u320_screen.png']),
-        ('import', ['import', '-window', 'root', '/tmp/gm12u320_screen.png']),
-        ('xwd', ['xwd', '-root', '-out', '/tmp/gm12u320_screen.xwd']),
-        ('gnome-screenshot', ['gnome-screenshot', '-f', '/tmp/gm12u320_screen.png', '--no-border']),
-    ]
-    
-    # Set DISPLAY if specified
-    env = os.environ.copy()
-    if display:
-        env['DISPLAY'] = display
-    elif 'DISPLAY' not in env:
-        # Try to detect display
-        try:
-            result = subprocess.run(['who'], capture_output=True, text=True, timeout=2)
-            for line in result.stdout.split('\n'):
-                if '(:0' in line or '(:1' in line:
-                    # Extract display from who output
-                    if '(:0' in line:
-                        env['DISPLAY'] = ':0'
-                    elif '(:1' in line:
-                        env['DISPLAY'] = ':1'
-                    break
-        except:
-            pass
+def capture_screen():
+    """Capture screen using PIL ImageGrab (cross-platform)"""
+    try:
+        # Capture the entire screen
+        image = ImageGrab.grab()
         
-        # Default to :0 if still not set
-        if 'DISPLAY' not in env:
-            env['DISPLAY'] = ':0'
-    
-    for method_name, cmd in methods:
-        try:
-            # Try the command
-            result = subprocess.run(cmd, capture_output=True, timeout=5, env=env)
+        # Validate the captured image
+        if image is None or image.size[0] == 0 or image.size[1] == 0:
+            print("⚠️  Screen capture returned invalid image")
+            return None
             
-            if result.returncode == 0:
-                # For xwd, convert to PNG first
-                if method_name == 'xwd':
-                    convert_result = subprocess.run(
-                        ['convert', '/tmp/gm12u320_screen.xwd', '/tmp/gm12u320_screen.png'],
-                        capture_output=True, timeout=5, env=env
-                    )
-                    if convert_result.returncode != 0:
-                        continue
-                    try:
-                        os.remove('/tmp/gm12u320_screen.xwd')
-                    except:
-                        pass
-                
-                # Load the image
-                if os.path.exists('/tmp/gm12u320_screen.png'):
-                    image = Image.open('/tmp/gm12u320_screen.png')
-                    # Clean up
-                    try:
-                        os.remove('/tmp/gm12u320_screen.png')
-                    except:
-                        pass
-                    return image
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            continue
-    
-    return None
-
-def capture_screen(display=None):
-    """Capture screen using best available method - IMPROVED for Linux"""
-    # On Linux, try command-line tools first (works with sudo)
-    if platform.system() == 'Linux':
-        # Try Linux-specific methods first
-        image = capture_screen_linux(display)
-        if image is not None:
-            # Validate
-            if image.size[0] > 0 and image.size[1] > 0:
-                return image
+        # Check if image has valid dimensions
+        if image.size[0] < 100 or image.size[1] < 100:
+            print(f"⚠️  Screen capture returned suspicious size: {image.size}")
+            return None
+            
+        return image
         
-        # Fallback to ImageGrab (may not work with sudo)
-        try:
-            # Set DISPLAY if needed
-            if display:
-                os.environ['DISPLAY'] = display
-            elif 'DISPLAY' not in os.environ:
-                os.environ['DISPLAY'] = ':0'
-            
-            image = ImageGrab.grab()
-            if image and image.size[0] > 0 and image.size[1] > 0:
-                return image
-        except Exception:
-            pass
-    else:
-        # On macOS/Windows, use ImageGrab
-        try:
-            image = ImageGrab.grab()
-            if image and image.size[0] > 0 and image.size[1] > 0:
-                return image
-        except Exception as e:
-            print(f"⚠️  Error con ImageGrab: {e}")
-    
-    return None
+    except Exception as e:
+        print(f"❌ Screen capture error: {e}")
+        return None
 
-def capture_screen_with_retry(max_retries=3, display=None):
+def capture_screen_with_retry(max_retries=3):
     """Capture screen with retry logic for better reliability"""
     for attempt in range(max_retries):
         try:
-            image = capture_screen(display)
+            image = capture_screen()
             if image is not None:
-                # Validate dimensions
-                if image.size[0] < 100 or image.size[1] < 100:
-                    print(f"⚠️  Captura con tamaño inválido: {image.size}")
-                    if attempt < max_retries - 1:
-                        time.sleep(0.1)
-                        continue
                 return image
             else:
                 if attempt < max_retries - 1:
-                    print(f"⚠️  Intento {attempt + 1} fallido, reintentando...")
-                    time.sleep(0.1)
+                    print(f"⚠️  Capture attempt {attempt + 1} failed, retrying...")
+                    time.sleep(0.1)  # Short delay before retry
         except Exception as e:
-            print(f"⚠️  Error en intento {attempt + 1}: {e}")
+            print(f"⚠️  Capture attempt {attempt + 1} error: {e}")
             if attempt < max_retries - 1:
                 time.sleep(0.1)
     
-    print("❌ Todos los intentos de captura fallaron")
-    print("💡 Sugerencias:")
-    print("   - Ejecuta sin sudo: python3 show_image.py screen")
-    print("   - O instala herramientas: sudo apt install scrot imagemagick")
-    print("   - O especifica display: DISPLAY=:0 python3 show_image.py screen")
+    print("❌ All screen capture attempts failed")
     return None
 
 def monitor_performance(frame_count, start_time, image_size=None):
@@ -437,20 +346,9 @@ def main():
             print(f"   FPS: {fps}")
         except ValueError:
             # Not a number, check if it's a file or "screen"
-            if arg.lower() == "screen" or arg.lower().startswith("screen:"):
+            if arg.lower() == "screen":
                 mode = "screen"
-                # Check if display is specified (screen:0, screen:1, etc.)
-                display = None
-                if ":" in arg:
-                    display_part = arg.split(":")[1]
-                    try:
-                        display_num = int(display_part)
-                        display = f":{display_num}"
-                    except:
-                        pass
                 print("\n📸 Modo: Captura de pantalla principal")
-                if display:
-                    print(f"   Display: {display}")
             elif os.path.exists(arg):
                 if is_video_file(arg):
                     mode = "video"
@@ -470,8 +368,6 @@ def main():
                 print("  python3 show_image.py imagen.jpg   # Mostrar imagen")
                 print("  python3 show_image.py video.mp4     # Reproducir video")
                 print("  python3 show_image.py screen       # Capturar pantalla principal")
-                print("  python3 show_image.py screen:0      # Capturar display :0")
-                print("  python3 show_image.py screen:1      # Capturar display :1")
                 return 1
     else:
         print("❌ Demasiados argumentos")
@@ -499,18 +395,6 @@ def main():
     video_fps = None
     video_total_frames = 0
     video_frame_number = 0
-    display = None  # For screen capture
-    
-    # Extract display from mode if specified (screen:0, screen:1, etc.)
-    if mode == "screen" and len(sys.argv) > 1:
-        arg = sys.argv[1]
-        if ":" in arg:
-            display_part = arg.split(":")[1]
-            try:
-                display_num = int(display_part)
-                display = f":{display_num}"
-            except:
-                pass
     
     if mode == "image":
         image = load_image_from_path(source_file)
@@ -556,7 +440,7 @@ def main():
             
             if mode == "screen":
                 # Capture screen continuously
-                image = capture_screen_with_retry(max_retries=2, display=display)
+                image = capture_screen_with_retry(max_retries=2)
                 if image is not None:
                     resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
                     if resized_image is not None:
