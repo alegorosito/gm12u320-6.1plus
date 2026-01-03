@@ -43,10 +43,14 @@ python3 show_image.py pelicula.avi
 ### 5. Capturar Pantalla Principal
 ```bash
 python3 show_image.py screen
+python3 show_image.py screen:0    # Especificar display :0
+python3 show_image.py screen:1    # Especificar display :1
 ```
 - Captura la pantalla principal en tiempo real
 - Actualiza continuamente a 10 FPS (por defecto)
 - Útil para espejar tu escritorio al proyector
+- **Nota**: Si usas `sudo`, el script intentará usar herramientas como `scrot`, `import` o `xwd`
+- **Recomendado**: Ejecutar sin `sudo` si es posible, o instalar: `sudo apt install scrot imagemagick`
 
 ## Ejemplos de Uso
 
