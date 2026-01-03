@@ -16,7 +16,6 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XShm.h>
-#include <X11/extensions/shmstr.h>
 #include <X11/X.h>
 #include <sys/shm.h>
 #include <math.h>
