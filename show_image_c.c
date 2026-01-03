@@ -12,6 +12,9 @@
  *     $(pkg-config --cflags --libs x11 xext) -lm
  */
 
+ #define _GNU_SOURCE
+
+ #include <sched.h>
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
@@ -68,14 +71,13 @@
 }
 
 static inline void sleep_until(struct timespec *next, long interval_ns) {
-    // “next” marca el deadline absoluto del próximo frame
+    // next marca el deadline absoluto del próximo frame
     timespec_add_ns(next, interval_ns);
 
-    // Duerme hasta ese instante absoluto (menos jitter que usleep)
     int rc;
     do {
         rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, next, NULL);
-    } while (rc == EINTR && running);
+    } while (rc == EINTR);  // sin 'running'
 }
  
  static volatile int running = 1;
