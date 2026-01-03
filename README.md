@@ -57,3 +57,4 @@ See the main README for driver installation instructions.
 3. Press Ctrl+C to stop
 
 The projector will show your screen in real-time at the specified FPS.
+
