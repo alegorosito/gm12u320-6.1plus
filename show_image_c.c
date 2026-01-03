@@ -1,48 +1,43 @@
 /*
- * GM12U320 Projector Screen Capture
- * Stable version with DOUBLE BUFFER + ATOMIC SWAP
+ * GM12U320 Projector Screen Mirror - mmap optimized
  *
- * Usage:
- *   ./show_image_c <fps> screen
+ * Captura el desktop X11 y escribe el framebuffer directamente
+ * en memoria RAM mediante mmap.
  *
- * Compile:
+ * Uso:
+ *   ./show_image_c 24 screen
+ *
+ * Compilar:
  *   gcc -O3 -o show_image_c show_image_c.c \
- *       $(pkg-config --cflags --libs x11 xext) -lm
+ *     $(pkg-config --cflags --libs x11 xext) -lm
  */
 
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
  #include <unistd.h>
- #include <time.h>
- #include <sys/time.h>
  #include <fcntl.h>
- #include <sys/stat.h>
+ #include <sys/mman.h>
+ #include <sys/time.h>
+ #include <sys/shm.h>
+ #include <signal.h>
  #include <X11/Xlib.h>
  #include <X11/Xutil.h>
  #include <X11/extensions/XShm.h>
- #include <sys/shm.h>
- #include <signal.h>
- 
- /* ================= CONFIG ================= */
- 
- #define PROJECTOR_WIDTH   800
- #define PROJECTOR_HEIGHT  600
- #define BYTES_PER_PIXEL   3
- #define DATA_BYTES_PER_LINE (PROJECTOR_WIDTH * BYTES_PER_PIXEL)
- #define STRIDE_BYTES_PER_LINE 2562
- #define TOTAL_FILE_SIZE (STRIDE_BYTES_PER_LINE * PROJECTOR_HEIGHT)
- 
- /* Double buffer files */
- #define FILE_A "/tmp/gm12u320_A.rgb"
- #define FILE_B "/tmp/gm12u320_B.rgb"
- #define FILE_ACTIVE "/tmp/gm12u320_image.rgb"
- 
- /* ========================================== */
  
  static volatile int running = 1;
  
- /* X11 globals */
+ /* Proyector */
+ #define PROJECTOR_WIDTH   800
+ #define PROJECTOR_HEIGHT  600
+ #define BYTES_PER_PIXEL   3
+ #define DATA_BYTES_PER_LINE  (PROJECTOR_WIDTH * BYTES_PER_PIXEL)
+ #define STRIDE_BYTES_PER_LINE 2562
+ #define TOTAL_FILE_SIZE (STRIDE_BYTES_PER_LINE * PROJECTOR_HEIGHT)
+ 
+ #define OUTPUT_FILE "/tmp/gm12u320_image.rgb"
+ 
+ /* X11 */
  static Display *display;
  static Window root;
  static XImage *ximage;
@@ -50,25 +45,30 @@
  static int screen_w, screen_h;
  static int use_shm = 0;
  
- /* ================= TIME ================= */
+ /* mmap */
+ static int fb_fd = -1;
+ static unsigned char *fb_map = NULL;
  
+ /* timing */
  static double now_sec(void) {
      struct timeval tv;
      gettimeofday(&tv, NULL);
-     return tv.tv_sec + tv.tv_usec / 1e6;
+     return tv.tv_sec + tv.tv_usec / 1000000.0;
  }
  
- /* ================= SIGNAL ================= */
- 
  static void on_signal(int sig) {
+     (void)sig;
      running = 0;
  }
  
- /* ================= X11 ================= */
+ /* ---------------- X11 ---------------- */
  
  static int init_x11(void) {
      display = XOpenDisplay(NULL);
-     if (!display) return 0;
+     if (!display) {
+         fprintf(stderr, "❌ No se pudo abrir display X11\n");
+         return 0;
+     }
  
      root = DefaultRootWindow(display);
      screen_w = DisplayWidth(display, DefaultScreen(display));
@@ -95,15 +95,25 @@
  
          shminfo.shmaddr = ximage->data = shmat(shminfo.shmid, 0, 0);
          shminfo.readOnly = False;
-         XShmAttach(display, &shminfo);
-     } else {
-         use_shm = 0;
-         ximage = NULL;
+ 
+         if (!XShmAttach(display, &shminfo)) {
+             fprintf(stderr, "⚠️ XShmAttach falló, fallback\n");
+             use_shm = 0;
+         }
      }
  
-     printf("X11: %dx%d | XShm: %s\n",
+     if (!use_shm) {
+         ximage = XGetImage(
+             display, root, 0, 0,
+             screen_w, screen_h,
+             AllPlanes, ZPixmap
+         );
+     }
+ 
+     printf("✅ X11 %dx%d (%s)\n",
             screen_w, screen_h,
-            use_shm ? "ON" : "OFF");
+            use_shm ? "XShm" : "XGetImage");
+ 
      return 1;
  }
  
@@ -112,108 +122,130 @@
          XShmDetach(display, &shminfo);
          shmdt(shminfo.shmaddr);
          shmctl(shminfo.shmid, IPC_RMID, 0);
+     } else if (ximage) {
          XDestroyImage(ximage);
      }
-     XCloseDisplay(display);
+ 
+     if (display)
+         XCloseDisplay(display);
  }
  
- /* ================= CAPTURE ================= */
+ /* ---------------- mmap ---------------- */
  
- static void capture_and_convert(unsigned char *dst) {
-     if (use_shm) {
-         XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
-     } else {
-         ximage = XGetImage(display, root, 0, 0,
-                            screen_w, screen_h,
-                            AllPlanes, ZPixmap);
+ static int init_mmap(void) {
+     fb_fd = open(OUTPUT_FILE, O_RDWR | O_CREAT, 0666);
+     if (fb_fd < 0) {
+         perror("open");
+         return 0;
      }
  
+     if (ftruncate(fb_fd, TOTAL_FILE_SIZE) < 0) {
+         perror("ftruncate");
+         return 0;
+     }
+ 
+     fb_map = mmap(
+         NULL,
+         TOTAL_FILE_SIZE,
+         PROT_READ | PROT_WRITE,
+         MAP_SHARED,
+         fb_fd,
+         0
+     );
+ 
+     if (fb_map == MAP_FAILED) {
+         perror("mmap");
+         return 0;
+     }
+ 
+     memset(fb_map, 0, TOTAL_FILE_SIZE);
+     return 1;
+ }
+ 
+ static void cleanup_mmap(void) {
+     if (fb_map)
+         munmap(fb_map, TOTAL_FILE_SIZE);
+     if (fb_fd >= 0)
+         close(fb_fd);
+ }
+ 
+ /* -------- resize + BGR copy -------- */
+ 
+ static void convert_frame(void) {
      unsigned char *src = (unsigned char *)ximage->data;
      int src_stride = ximage->bytes_per_line;
  
-     double sx = (double)ximage->width / PROJECTOR_WIDTH;
+     double sx = (double)ximage->width  / PROJECTOR_WIDTH;
      double sy = (double)ximage->height / PROJECTOR_HEIGHT;
  
      for (int y = 0; y < PROJECTOR_HEIGHT; y++) {
          int syy = (int)(y * sy);
+         unsigned char *dst_row = fb_map + y * STRIDE_BYTES_PER_LINE;
          unsigned char *src_row = src + syy * src_stride;
-         unsigned char *dst_row = dst + y * STRIDE_BYTES_PER_LINE;
  
          for (int x = 0; x < PROJECTOR_WIDTH; x++) {
              int sxx = (int)(x * sx);
              unsigned char *p = src_row + sxx * 4;
-             dst_row[x*3+0] = p[0]; // B
-             dst_row[x*3+1] = p[1]; // G
-             dst_row[x*3+2] = p[2]; // R
+ 
+             dst_row[x*3 + 0] = p[0]; // B
+             dst_row[x*3 + 1] = p[1]; // G
+             dst_row[x*3 + 2] = p[2]; // R
          }
      }
- 
-     if (!use_shm) {
-         XDestroyImage(ximage);
-     }
  }
  
- /* ================= FILE SWAP ================= */
- 
- static void write_frame_atomic(
-     const char *tmp,
-     const char *final,
-     unsigned char *buf
- ) {
-     int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-     write(fd, buf, TOTAL_FILE_SIZE);
-     fsync(fd);
-     close(fd);
-     rename(tmp, final);   // ATOMIC SWAP
- }
- 
- /* ================= MAIN ================= */
+ /* ---------------- main ---------------- */
  
  int main(int argc, char **argv) {
      if (argc != 3 || strcmp(argv[2], "screen") != 0) {
-         printf("Usage: %s <fps> screen\n", argv[0]);
+         fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
          return 1;
      }
  
      double fps = atof(argv[1]);
      double interval = 1.0 / fps;
  
-     unsigned char *buffer =
-         calloc(TOTAL_FILE_SIZE, 1);
- 
      signal(SIGINT, on_signal);
      signal(SIGTERM, on_signal);
  
      if (!init_x11()) return 1;
+     if (!init_mmap()) return 1;
  
-     int flip = 0;
+     printf("▶ Mirror activo (%.1f FPS)\n", fps);
+ 
      double start = now_sec();
-     int frames = 0;
+     unsigned long frames = 0;
  
      while (running) {
          double t0 = now_sec();
  
-         capture_and_convert(buffer);
- 
-         if (flip) {
-             write_frame_atomic(FILE_A, FILE_ACTIVE, buffer);
+         if (use_shm) {
+             XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
          } else {
-             write_frame_atomic(FILE_B, FILE_ACTIVE, buffer);
+             XGetSubImage(
+                 display, root, 0, 0,
+                 screen_w, screen_h,
+                 AllPlanes, ZPixmap,
+                 ximage, 0, 0
+             );
          }
-         flip = !flip;
  
+         convert_frame();
          frames++;
+ 
          if (frames % 30 == 0) {
-             double fps_real = frames / (now_sec() - start);
-             printf("FPS: %.1f\n", fps_real);
+             double elapsed = now_sec() - start;
+             printf("FPS: %.1f\n", frames / elapsed);
          }
  
          double dt = now_sec() - t0;
-         if (dt < interval)
-             usleep((interval - dt) * 1e6);
+         double sleep = interval - dt;
+         if (sleep > 0)
+             usleep((useconds_t)(sleep * 1e6));
      }
  
+     printf("\n⏹ Deteniendo\n");
+     cleanup_mmap();
      cleanup_x11();
-     free(buffer);
      return 0;
  }
