@@ -25,14 +25,57 @@
  #include <X11/Xutil.h>
  #include <X11/extensions/XShm.h>
  #include <time.h>
+ #include <errno.h>
+ #include <sched.h>
 
-static void sleep_until(struct timespec *ts, double interval) {
-    ts->tv_nsec += (long)(interval * 1e9);
-    while (ts->tv_nsec >= 1000000000L) {
-        ts->tv_nsec -= 1000000000L;
-        ts->tv_sec++;
+ static void enable_realtime_fifo_or_die(int prio) {
+    struct sched_param sp;
+    memset(&sp, 0, sizeof(sp));
+    sp.sched_priority = prio; // 1..99 (más alto = más prioridad)
+
+    if (sched_setscheduler(0, SCHED_FIFO, &sp) != 0) {
+        fprintf(stderr, "❌ sched_setscheduler(SCHED_FIFO,%d) falló: %s\n",
+                prio, strerror(errno));
+        exit(1);
     }
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, ts, NULL);
+
+    printf("✅ SCHED_FIFO activado (prio=%d)\n", prio);
+}
+
+ static void set_cpu_affinity_or_die(int cpu) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu, &set);
+
+    if (sched_setaffinity(0, sizeof(set), &set) != 0) {
+        fprintf(stderr, "❌ sched_setaffinity(cpu=%d) falló: %s\n", cpu, strerror(errno));
+        exit(1);
+    }
+
+    // Verificación (opcional pero útil)
+    int cur = sched_getcpu();
+    if (cur >= 0) {
+        printf("✅ Afinidad fijada. CPU actual: %d\n", cur);
+    }
+}
+
+ static inline void timespec_add_ns(struct timespec *t, long ns) {
+    t->tv_nsec += ns;
+    while (t->tv_nsec >= 1000000000L) {
+        t->tv_nsec -= 1000000000L;
+        t->tv_sec += 1;
+    }
+}
+
+static inline void sleep_until(struct timespec *next, long interval_ns) {
+    // “next” marca el deadline absoluto del próximo frame
+    timespec_add_ns(next, interval_ns);
+
+    // Duerme hasta ese instante absoluto (menos jitter que usleep)
+    int rc;
+    do {
+        rc = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, next, NULL);
+    } while (rc == EINTR && running);
 }
  
  static volatile int running = 1;
@@ -207,61 +250,69 @@ static void sleep_until(struct timespec *ts, double interval) {
  /* ---------------- main ---------------- */
  
  int main(int argc, char **argv) {
-     if (argc != 3 || strcmp(argv[2], "screen") != 0) {
-         fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
-         return 1;
-     }
- 
-     double fps = atof(argv[1]);
-     double interval = 1.0 / fps;
- 
-     signal(SIGINT, on_signal);
-     signal(SIGTERM, on_signal);
- 
-     if (!init_x11()) return 1;
-     if (!init_mmap()) return 1;
- 
-    //  printf("▶ Mirror activo (%.1f FPS)\n", fps);
- 
-     double start = now_sec();
-     unsigned long frames = 0;
+    if (argc != 3 || strcmp(argv[2], "screen") != 0) {
+        fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
+        return 1;
+    }
 
-     start_time = get_time();
+    double fps = atof(argv[1]);
+    if (fps <= 0.0 || fps > 60.0) {
+        fprintf(stderr, "FPS inválido\n");
+        return 1;
+    }
 
-    /* ✅ Inicializa el “próximo instante objetivo” del scheduler de frames */
+    const long frame_interval_ns = (long)(1e9 / fps);
+
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
+
+    if (!init_x11()) return 1;
+    if (!init_mmap()) return 1;
+
+    set_cpu_affinity_or_die(3);
+    enable_realtime_fifo_or_die(80);
+
+    printf("▶ Mirror activo (%.1f FPS objetivo)\n", fps);
+
+    double start = now_sec();
+    unsigned long frames = 0;
+
+    /* ⏱ Inicializa el instante absoluto del primer frame */
     struct timespec next;
     clock_gettime(CLOCK_MONOTONIC, &next);
- 
-     while (running) {
-         double t0 = now_sec();
- 
-         if (use_shm) {
-             XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
-         } else {
-             XGetSubImage(
-                 display, root, 0, 0,
-                 screen_w, screen_h,
-                 AllPlanes, ZPixmap,
-                 ximage, 0, 0
-             );
-         }
- 
-         convert_frame();
-         frames++;
- 
-         if (frames % 30 == 0) {
-             double elapsed = now_sec() - start;
-             printf("FPS: %.1f\n", frames / elapsed);
-         }
- 
-         double dt = now_sec() - t0;
-         double sleep = interval - dt;
-         if (sleep > 0)
-             usleep((useconds_t)(sleep * 1e6));
-     }
- 
-     printf("\n⏹ Deteniendo\n");
-     cleanup_mmap();
-     cleanup_x11();
-     return 0;
- }
+
+    while (running) {
+        double t0 = now_sec();
+
+        /* 📸 Captura */
+        if (use_shm) {
+            XShmGetImage(display, root, ximage, 0, 0, AllPlanes);
+        } else {
+            XGetSubImage(
+                display, root,
+                0, 0,
+                screen_w, screen_h,
+                AllPlanes, ZPixmap,
+                ximage, 0, 0
+            );
+        }
+
+        /* 🔄 Conversión directa a buffer mmap */
+        convert_frame();
+        frames++;
+
+        /* 📊 Métrica simple */
+        if ((frames % 30) == 0) {
+            double elapsed = now_sec() - start;
+            printf("FPS: %.1f\n", frames / elapsed);
+        }
+
+        /* 💤 Sleep absoluto (sin drift) */
+        sleep_until(&next, frame_interval_ns);
+    }
+
+    printf("\n⏹ Deteniendo\n");
+    cleanup_mmap();
+    cleanup_x11();
+    return 0;
+}
