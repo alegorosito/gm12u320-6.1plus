@@ -484,42 +484,8 @@ def main():
             data = None
             
             if mode == "screen":
-                t0 = time.time()
-                image = capture_screen_with_retry(max_retries=2)
-                t1 = time.time()
-
-                if image is None:
-                    print(f"cap={(t1-t0)*1000:.1f}ms (FAIL)")
-                else:
-                    resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
-                    t2 = time.time()
-
-                    if resized_image is None:
-                        print(f"cap={(t1-t0)*1000:.1f}ms resize={(t2-t1)*1000:.1f}ms (FAIL)")
-                    else:
-                        data = create_rgb_buffer_with_stride(resized_image, verbose=False)
-                        t3 = time.time()
-
-                        if not data:
-                            print(f"cap={(t1-t0)*1000:.1f}ms resize={(t2-t1)*1000:.1f}ms conv={(t3-t2)*1000:.1f}ms (FAIL)")
-                        else:
-                            ok = write_to_file(data, verbose=False)
-                            t4 = time.time()
-
-                            if not ok:
-                                print(f"cap={(t1-t0)*1000:.1f}ms resize={(t2-t1)*1000:.1f}ms conv={(t3-t2)*1000:.1f}ms write={(t4-t3)*1000:.1f}ms (FAIL)")
-                            else:
-                                frame_count += 1
-                                if frame_count % 10 == 0:
-                                    print(
-                                        f"cap={(t1-t0)*1000:.1f}ms "
-                                        f"resize={(t2-t1)*1000:.1f}ms "
-                                        f"conv={(t3-t2)*1000:.1f}ms "
-                                        f"write={(t4-t3)*1000:.1f}ms"
-                                    )
-
                 # Capture screen continuously
-                image = capture_screen_with_retry(max_retries=2)
+                image = capture_screen_with_retry(max_retries=1)
                 if image is not None:
                     resized_image = resize_image(image, PROJECTOR_WIDTH, PROJECTOR_HEIGHT)
                     if resized_image is not None:
