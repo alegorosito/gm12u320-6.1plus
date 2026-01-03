@@ -13,10 +13,6 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/extensions/XShm.h>
-#include <X11/extensions/shmstr.h>
 #include <sys/shm.h>
 #include <math.h>
 #include <signal.h>
@@ -172,49 +168,28 @@ static int capture_screen(unsigned char *output_buffer) {
 }
 
 // Fast resize and convert RGB to BGR with stride
-static void resize_and_convert(unsigned char *src, int src_w, int src_h,
-                               unsigned char *dst, int dst_w, int dst_h) {
-    int x, y;
-    int src_x, src_y;
-    int dst_idx;
-    unsigned long pixel;
-    unsigned char r, g, b;
-    XColor color;
-    
-    // Calculate scaling factors
-    double scale_x = (double)src_w / dst_w;
-    double scale_y = (double)src_h / dst_h;
-    
-    if (!ximage) return;
-    
-    for (y = 0; y < dst_h; y++) {
-        src_y = (int)(y * scale_y);
-        if (src_y >= src_h) src_y = src_h - 1;
-        
-        for (x = 0; x < dst_w; x++) {
-            src_x = (int)(x * scale_x);
-            if (src_x >= src_w) src_x = src_w - 1;
-            
-            // Use XGetPixel for robust pixel extraction
-            pixel = XGetPixel(ximage, src_x, src_y);
-            
-            // Convert pixel to RGB using X11 color structure
-            color.pixel = pixel;
-            XQueryColor(display, DefaultColormap(display, DefaultScreen(display)), &color);
-            
-            // Extract RGB (X11 uses 16-bit per channel, scale to 8-bit)
-            r = (unsigned char)(color.red >> 8);
-            g = (unsigned char)(color.green >> 8);
-            b = (unsigned char)(color.blue >> 8);
-            
-            // Write to destination in BGR format with stride
-            dst_idx = y * STRIDE_BYTES_PER_LINE + x * 3;
-            dst[dst_idx] = b;     // B
-            dst[dst_idx + 1] = g; // G
-            dst[dst_idx + 2] = r; // R
+static void resize_and_convert(unsigned char *dst) {
+    unsigned char *src = (unsigned char *)ximage->data;
+    int src_stride = ximage->bytes_per_line;
+
+    double scale_x = (double)ximage->width / PROJECTOR_WIDTH;
+    double scale_y = (double)ximage->height / PROJECTOR_HEIGHT;
+
+    for (int y = 0; y < PROJECTOR_HEIGHT; y++) {
+        int src_y = (int)(y * scale_y);
+        unsigned char *dst_row = dst + y * STRIDE_BYTES_PER_LINE;
+
+        unsigned char *src_row =
+            src + src_y * src_stride;
+
+        for (int x = 0; x < PROJECTOR_WIDTH; x++) {
+            int src_x = (int)(x * scale_x);
+            unsigned char *p = src_row + src_x * 4;
+
+            dst_row[x * 3 + 0] = p[0]; // B
+            dst_row[x * 3 + 1] = p[1]; // G
+            dst_row[x * 3 + 2] = p[2]; // R
         }
-        
-        // Padding is already zero (calloc initialized it)
     }
 }
 
