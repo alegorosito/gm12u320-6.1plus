@@ -43,8 +43,7 @@ static int use_shm = 0;
 static int init_x11(void);
 static void cleanup_x11(void);
 static int capture_screen(unsigned char *output_buffer);
-static void resize_and_convert(unsigned char *src, int src_w, int src_h,
-                               unsigned char *dst, int dst_w, int dst_h);
+static void resize_and_convert(unsigned char *dst);
 static void write_buffer_to_file(unsigned char *buffer, size_t size);
 static double get_time(void);
 
