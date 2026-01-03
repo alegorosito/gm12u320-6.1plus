@@ -19,6 +19,7 @@
 #include <linux/vt_kern.h>
 #include <linux/fs.h>
 #include <linux/jiffies.h>
+#include <linux/string.h>
 #include "gm12u320_drv.h"
 
 /* Function prototypes */
@@ -269,6 +270,114 @@ static int gm12u320_fb_update_ready(struct gm12u320_device *gm12u320)
 	return ret;
 }
 
+/* Simple 8x8 bitmap font for ASCII characters */
+static const unsigned char font_8x8[128][8] = {
+	/* Space (32) */
+	[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	/* A (65) */
+	[65] = {0x3C, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
+	/* B (66) */
+	[66] = {0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00},
+	/* C (67) */
+	[67] = {0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00},
+	/* L (76) */
+	[76] = {0x78, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00},
+	/* Y (89) */
+	[89] = {0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x00},
+	/* a (97) */
+	[97] = {0x00, 0x00, 0x3C, 0x06, 0x3E, 0x66, 0x3E, 0x00},
+	/* b (98) */
+	[98] = {0x60, 0x60, 0x7C, 0x66, 0x66, 0x66, 0x7C, 0x00},
+	/* c (99) */
+	[99] = {0x00, 0x00, 0x3C, 0x66, 0x60, 0x66, 0x3C, 0x00},
+	/* e (101) */
+	[101] = {0x00, 0x00, 0x3C, 0x66, 0x7E, 0x60, 0x3C, 0x00},
+	/* j (106) */
+	[106] = {0x0C, 0x00, 0x0C, 0x0C, 0x0C, 0x0C, 0x6C, 0x38},
+	/* l (108) */
+	[108] = {0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x0C, 0x00},
+	/* r (114) */
+	[114] = {0x00, 0x00, 0x6C, 0x76, 0x60, 0x60, 0x60, 0x00},
+	/* y (121) */
+	[121] = {0x00, 0x00, 0x66, 0x66, 0x66, 0x3E, 0x06, 0x7C},
+	/* 0 (48) */
+	[48] = {0x3C, 0x66, 0x6E, 0x76, 0x66, 0x66, 0x3C, 0x00},
+	/* 1 (49) */
+	[49] = {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00},
+	/* 2 (50) */
+	[50] = {0x3C, 0x66, 0x06, 0x0C, 0x18, 0x30, 0x7E, 0x00},
+	/* 3 (51) */
+	[51] = {0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00},
+	/* * (42) */
+	[42] = {0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00},
+};
+
+/* Function to draw a character at position (x, y) */
+static void draw_char(unsigned char *buffer, int width, int height, 
+		      int x, int y, char c, unsigned char r, unsigned char g, unsigned char b)
+{
+	int i, j;
+	const unsigned char *char_data;
+	unsigned char uc = (unsigned char)c;
+	
+	/* Check if character is valid and defined in font */
+	if (uc >= 128) {
+		char_data = font_8x8[32]; /* Use space for invalid chars */
+	} else {
+		/* Check if character is defined (not all zeros or space) */
+		int is_defined = 0;
+		if (uc == 32) {
+			is_defined = 1; /* Space is always defined */
+		} else {
+			/* Check if any row has non-zero data */
+			for (i = 0; i < 8; i++) {
+				if (font_8x8[uc][i] != 0) {
+					is_defined = 1;
+					break;
+				}
+			}
+		}
+		
+		if (is_defined) {
+			char_data = font_8x8[uc];
+		} else {
+			char_data = font_8x8[32]; /* Use space if char not defined */
+		}
+	}
+	
+	for (i = 0; i < 8; i++) {
+		for (j = 0; j < 8; j++) {
+			int px = x + j;
+			int py = y + i;
+			
+			if (px >= 0 && px < width && py >= 0 && py < height) {
+				int offset = (py * width + px) * 3;
+				
+				/* Draw pixel if bit is set */
+				if (char_data[i] & (1 << (7 - j))) {
+					buffer[offset] = r;     /* Red */
+					buffer[offset + 1] = g; /* Green */
+					buffer[offset + 2] = b; /* Blue */
+				}
+			}
+		}
+	}
+}
+
+/* Function to draw text string */
+static void draw_text(unsigned char *buffer, int width, int height,
+		      int x, int y, const char *text, unsigned char r, unsigned char g, unsigned char b)
+{
+	int i = 0;
+	int char_x = x;
+	
+	while (text[i] != '\0' && char_x < width - 8) {
+		draw_char(buffer, width, height, char_x, y, text[i], r, g, b);
+		char_x += 9; /* 8 pixels + 1 pixel spacing */
+		i++;
+	}
+}
+
 /* Function to capture main screen content */
 static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *dest_buffer, int max_size)
 {
@@ -307,33 +416,34 @@ static int capture_main_screen(struct gm12u320_device *gm12u320, unsigned char *
 		}
 		filp_close(file, NULL);
 	} else {
-		printk(KERN_DEBUG "gm12u320: No image file found, using test pattern\n");
+		printk(KERN_DEBUG "gm12u320: No image file found, using default screen\n");
 	}
 	
-	/* Fallback to test pattern if no image file or read failed */
-	printk(KERN_DEBUG "gm12u320: Generating test pattern: %dx%d\n", target_width, target_height);
+	/* Fallback to gray screen with text if no image file or read failed */
+	printk(KERN_DEBUG "gm12u320: Generating default screen: %dx%d\n", target_width, target_height);
 	
-	/* Generate a simple test pattern */
+	/* Fill screen with gray (RGB: 128, 128, 128) */
 	int i, j;
-	static int frame_count = 0;
-	frame_count++;
-	
 	for (i = 0; i < target_height; i++) {
 		for (j = 0; j < target_width; j++) {
 			int dest_offset = i * target_width * 3 + j * 3;
 			
 			if (dest_offset + 2 < max_size) {
-				/* Create an animated test pattern */
-				int r = (j + frame_count) % 256;
-				int g = (i + frame_count) % 256;
-				int b = (frame_count * 10) % 256;
-				
-				dest_buffer[dest_offset] = r;     /* Red */
-				dest_buffer[dest_offset + 1] = g; /* Green */
-				dest_buffer[dest_offset + 2] = b; /* Blue */
+				dest_buffer[dest_offset] = 128;     /* Red */
+				dest_buffer[dest_offset + 1] = 128; /* Green */
+				dest_buffer[dest_offset + 2] = 128; /* Blue */
 			}
 		}
 	}
+	
+	/* Draw text "Acer C120 by aL3j*" in black at center */
+	const char *text = "Acer C120 by aL3j*";
+	int text_x = (target_width - (strlen(text) * 9)) / 2; /* Center horizontally */
+	int text_y = target_height / 2 - 4; /* Center vertically */
+	
+	/* Draw text in black (RGB: 0, 0, 0) */
+	draw_text(dest_buffer, target_width, target_height, text_x, text_y, 
+		  text, 0, 0, 0);
 	
 	return target_width * target_height * 3; /* Return actual bytes copied */
 }
