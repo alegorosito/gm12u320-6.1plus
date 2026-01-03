@@ -253,7 +253,7 @@ static inline void sleep_until(struct timespec *next, long interval_ns) {
  
  int main(int argc, char **argv) {
     if (argc != 3 || strcmp(argv[2], "screen") != 0) {
-        fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
+        // fprintf(stderr, "Uso: %s <fps> screen\n", argv[0]);
         return 1;
     }
 
