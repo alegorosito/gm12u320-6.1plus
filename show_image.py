@@ -365,18 +365,63 @@ def main():
                 print("\nUso:")
                 print("  python3 show_image.py              # Patrón de prueba (10 FPS)")
                 print("  python3 show_image.py 24           # Patrón de prueba a 24 FPS")
+                print("  python3 show_image.py 24 screen    # Captura de pantalla a 24 FPS")
                 print("  python3 show_image.py imagen.jpg   # Mostrar imagen")
                 print("  python3 show_image.py video.mp4     # Reproducir video")
-                print("  python3 show_image.py screen       # Capturar pantalla principal")
+                print("  python3 show_image.py screen       # Capturar pantalla principal (10 FPS)")
                 return 1
+    elif len(sys.argv) == 3:
+        # Two arguments: FPS and mode/file
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        
+        # First argument should be FPS
+        try:
+            fps = float(arg1)
+            if fps <= 0 or fps > 60:
+                print("❌ FPS debe estar entre 0.1 y 60")
+                return 1
+        except ValueError:
+            print("❌ El primer argumento debe ser un número (FPS)")
+            print("\nUso:")
+            print("  python3 show_image.py 24 screen    # Captura de pantalla a 24 FPS")
+            print("  python3 show_image.py 30 screen     # Captura de pantalla a 30 FPS")
+            return 1
+        
+        # Second argument: mode or file
+        if arg2.lower() == "screen":
+            mode = "screen"
+            print(f"\n📸 Modo: Captura de pantalla principal")
+            print(f"   FPS: {fps}")
+        elif os.path.exists(arg2):
+            if is_video_file(arg2):
+                mode = "video"
+                source_file = arg2
+                print(f"\n🎬 Modo: Reproducción de video")
+                print(f"   Archivo: {arg2}")
+                print(f"   FPS solicitado: {fps} (se usará FPS del video si está disponible)")
+            else:
+                mode = "image"
+                source_file = arg2
+                print(f"\n📷 Modo: Imagen estática")
+                print(f"   Archivo: {arg2}")
+                print(f"   FPS: {fps}")
+        else:
+            print(f"❌ Segundo argumento inválido: {arg2}")
+            print("\nUso:")
+            print("  python3 show_image.py 24 screen    # Captura de pantalla a 24 FPS")
+            print("  python3 show_image.py 30 screen     # Captura de pantalla a 30 FPS")
+            print("  python3 show_image.py 10 imagen.jpg # Imagen a 10 FPS")
+            return 1
     else:
         print("❌ Demasiados argumentos")
         print("\nUso:")
         print("  python3 show_image.py              # Patrón de prueba (10 FPS)")
         print("  python3 show_image.py 24           # Patrón de prueba a 24 FPS")
+        print("  python3 show_image.py 24 screen    # Captura de pantalla a 24 FPS")
         print("  python3 show_image.py imagen.jpg   # Mostrar imagen")
         print("  python3 show_image.py video.mp4     # Reproducir video")
-        print("  python3 show_image.py screen       # Capturar pantalla principal")
+        print("  python3 show_image.py screen       # Capturar pantalla principal (10 FPS)")
         return 1
     
     # Set default resolution

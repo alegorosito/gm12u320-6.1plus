@@ -42,10 +42,12 @@ python3 show_image.py pelicula.avi
 
 ### 5. Capturar Pantalla Principal
 ```bash
-python3 show_image.py screen
+python3 show_image.py screen          # A 10 FPS (por defecto)
+python3 show_image.py 24 screen       # A 24 FPS
+python3 show_image.py 30 screen       # A 30 FPS
 ```
 - Captura la pantalla principal en tiempo real
-- Actualiza continuamente a 10 FPS (por defecto)
+- Puedes especificar los FPS (10 por defecto)
 - Útil para espejar tu escritorio al proyector
 - **Nota**: Funciona mejor sin `sudo`. Si necesitas usar `sudo`, asegúrate de tener permisos X11 configurados
 
@@ -67,7 +69,9 @@ python3 show_image.py mi_foto.jpg
 python3 show_image.py mi_video.mp4
 
 # Capturar pantalla principal
-python3 show_image.py screen
+python3 show_image.py screen          # A 10 FPS
+python3 show_image.py 24 screen       # A 24 FPS
+python3 show_image.py 30 screen       # A 30 FPS
 ```
 
 ## Notas
