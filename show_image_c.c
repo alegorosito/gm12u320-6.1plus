@@ -13,6 +13,11 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/XShm.h>
+#include <X11/extensions/shmstr.h>
+#include <X11/X.h>
 #include <sys/shm.h>
 #include <math.h>
 #include <signal.h>
@@ -147,22 +152,8 @@ static int capture_screen(unsigned char *output_buffer) {
         }
     }
     
-    // Update global ximage pointer for resize function
-    XImage *old_ximage = ximage;
-    ximage = img;
-    
     // Resize and convert RGB->BGR with stride
-    resize_and_convert(NULL, img->width, img->height,
-                      output_buffer, PROJECTOR_WIDTH, PROJECTOR_HEIGHT);
-    
-    // Restore ximage pointer
-    ximage = old_ximage;
-    
-    // Only destroy if it's not the shared memory image
-    if (!use_shm && img) {
-        XDestroyImage(img);
-    }
-    
+    resize_and_convert(output_buffer);
     return 1;
 }
 
