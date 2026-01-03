@@ -406,12 +406,12 @@ def main():
     print("=================================")
     
     # Check if projector device exists
-    if not os.path.exists('/dev/dri/renderD128'):
-        print("❌ Dispositivo /dev/dri/renderD128 no encontrado")
+    if not os.path.exists('/dev/dri/card2'):
+        print("❌ Dispositivo /dev/dri/card2 no encontrado")
         print("   Asegúrate de que el driver GM12U320 esté cargado")
         return 1
     
-    print("✅ Dispositivo encontrado: /dev/dri/renderD128")
+    print("✅ Dispositivo encontrado: /dev/dri/card2")
     
     # Parse arguments - SIMPLIFIED
     fps = 10  # Default FPS
